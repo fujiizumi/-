@@ -25,12 +25,13 @@ export const HOTEL = {
   },
 };
 
+/** Total inventory across all room types must equal the hotel's 94 physical rooms. */
 export const ROOM_TYPES: RoomType[] = [
   {
     id: "standard-twin",
     name: "スタンダードツイン",
     capacity: 2,
-    totalRooms: 40,
+    totalRooms: 42,
     basePrice: 12000,
     minPrice: 7000,
     maxPrice: 32000,
@@ -39,7 +40,7 @@ export const ROOM_TYPES: RoomType[] = [
     id: "deluxe-double",
     name: "デラックスダブル",
     capacity: 2,
-    totalRooms: 25,
+    totalRooms: 28,
     basePrice: 16000,
     minPrice: 9000,
     maxPrice: 42000,
@@ -57,12 +58,14 @@ export const ROOM_TYPES: RoomType[] = [
     id: "family-room",
     name: "ファミリールーム",
     capacity: 4,
-    totalRooms: 15,
+    totalRooms: 16,
     basePrice: 22000,
     minPrice: 14000,
     maxPrice: 55000,
   },
 ];
+
+export const TOTAL_ROOMS = ROOM_TYPES.reduce((sum, r) => sum + r.totalRooms, 0);
 
 export const PLANS: Plan[] = [
   {
