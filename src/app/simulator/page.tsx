@@ -5,9 +5,11 @@ import Link from "next/link";
 import { AREAS, ROOM_PRESETS, findArea } from "@/data/areas";
 import { CompetitorPanel } from "@/components/CompetitorPanel";
 import { ExportDialog } from "@/components/ExportDialog";
+import { BreakEvenPanel } from "@/components/BreakEvenPanel";
 import { getQuery, isStandalone, setStoreInUrl, tryDownload } from "@/lib/env";
 import { STORE_STATUSES, loadPortfolio, newStore, upsertStore, type StoreStatus } from "@/lib/portfolio";
 import {
+  breakEvenAnalysis,
   buildInputForArea,
   DEFAULT_INPUT,
   computeRequirements,
@@ -153,6 +155,7 @@ export default function ProfitSimulator() {
 
   const result = useMemo(() => simulate(input), [input]);
   const req = useMemo(() => computeRequirements(input), [input]);
+  const be = useMemo(() => breakEvenAnalysis(input), [input]);
   const leaseResult = useMemo(() => simulate({ ...input, model: "lease" }), [input]);
   const mcResult = useMemo(() => simulate({ ...input, model: "mc" }), [input]);
 
@@ -184,6 +187,9 @@ export default function ProfitSimulator() {
     }
     rows.push(["", "GOP", Math.round(result.gop), Math.round(result.gop / months), (result.gopRate * 100).toFixed(2), ""]);
     rows.push(["", "営業利益（自社）", Math.round(result.operatingProfit), Math.round(result.operatingProfit / months), "", ""]);
+    if (be.breakEvenSales !== null) rows.push(["損益分岐点", "損益分岐点売上高", Math.round(be.breakEvenSales), Math.round(be.breakEvenSales / months), "", ""]);
+    if (be.targetSales !== null) rows.push(["損益分岐点", "目標利益達成売上高", Math.round(be.targetSales), Math.round(be.targetSales / months), "", ""]);
+    if (be.safetyMargin !== null) rows.push(["損益分岐点", "安全余裕率(%)", (be.safetyMargin * 100).toFixed(1), "", "", ""]);
     const csv = "﻿" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     if (!tryDownload(csv, `hotel-profit-${input.model}.csv`, "text/csv;charset=utf-8")) setExportText(csv.replace(/^\uFEFF/, ""));
   };
@@ -607,6 +613,8 @@ export default function ProfitSimulator() {
               </p>
             )}
           </div>
+
+          <BreakEvenPanel be={be} model={input.model} currentSales={result.totalRevenue} months={months} targetProfit={input.targetProfit} />
 
           {/* KPI */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">

@@ -567,3 +567,90 @@ export function buildInputForArea(
     mcOwnerFixedMonthly: 25_000 * r,
   };
 }
+
+export type BreakEvenAnalysis = {
+  /** 計算方法：賃貸は固定費・変動費に分けるCVP分析、MCはフィー体系が非線形のため数値計算 */
+  method: "cvp" | "numeric";
+  /** 固定費（年） */
+  fixedCosts: number;
+  /** 変動費率（変動費 ÷ 売上高）。MCは null */
+  variableCostRatio: number | null;
+  /** 限界利益率（1 − 変動費率）。MCは null */
+  contributionMarginRatio: number | null;
+  /** 損益分岐点売上高（年）。客室数の上限で届かない場合も理論値を返す（MCで届かない場合は null） */
+  breakEvenSales: number | null;
+  /** 目標営業利益を達成する売上高（年） */
+  targetSales: number | null;
+  /** 損益分岐点稼働率（ADR据置。1を超える場合は満室でも届かない） */
+  breakEvenOccupancy: number | null;
+  /** 安全余裕率（(現在売上 − 損益分岐点売上) ÷ 現在売上） */
+  safetyMargin: number | null;
+  /** 損益分岐点比率（損益分岐点売上 ÷ 現在売上） */
+  breakEvenRatio: number | null;
+  /** 満室時の売上高（年） */
+  maxSales: number;
+  /** MC方式：オーナー（ホテル）の損益分岐点売上高 */
+  ownerBreakEvenSales?: number | null;
+};
+
+/**
+ * 損益分岐点分析。
+ * 稼働率（販売室数）だけを動かしたとき、売上高と費用はいずれも販売室数に比例する部分と
+ * 固定部分に分かれる。賃貸方式では営業利益が売上高の一次関数になるので、
+ * 稼働率0%と100%の2点から固定費と変動費率を求め、
+ *   損益分岐点売上高 = 固定費 ÷ 限界利益率
+ * で計算する（ADR・人数・喫食率などの売上構成は現在の入力のまま）。
+ */
+export function breakEvenAnalysis(input: SimulationInput): BreakEvenAnalysis {
+  const current = simulate(input);
+  const at = (occupancy: number) => simulate({ ...input, occupancy });
+  const full = at(1);
+  const maxSales = full.totalRevenue;
+  const salesPerOcc = maxSales; // 売上高は稼働率に比例
+
+  const ratioOf = (be: number | null) => (be !== null && current.totalRevenue > 0 ? be / current.totalRevenue : null);
+  const marginOf = (be: number | null) => (be !== null && current.totalRevenue > 0 ? (current.totalRevenue - be) / current.totalRevenue : null);
+
+  if (input.model === "lease") {
+    const fixedCosts = -at(0).lease.operatingProfit;
+    const variableCosts = full.totalRevenue - full.lease.operatingProfit - fixedCosts;
+    const v = full.totalRevenue > 0 ? variableCosts / full.totalRevenue : 0;
+    const cm = 1 - v;
+    const be = cm > 0 ? Math.max(0, fixedCosts) / cm : null;
+    const target = cm > 0 ? Math.max(0, fixedCosts + input.targetProfit) / cm : null;
+    return {
+      method: "cvp",
+      fixedCosts,
+      variableCostRatio: v,
+      contributionMarginRatio: cm,
+      breakEvenSales: be,
+      targetSales: target,
+      breakEvenOccupancy: be !== null && salesPerOcc > 0 ? be / salesPerOcc : null,
+      safetyMargin: marginOf(be),
+      breakEvenRatio: ratioOf(be),
+      maxSales,
+    };
+  }
+
+  // MC：運営会社の利益 = ベースフィー + インセンティブフィー − 自社負担コスト（GOPに依存して折れ線になる）
+  const solveSales = (fn: (o: number) => number, target: number) => {
+    const occ = solveMin(fn, target, 0, 1);
+    return occ === null ? null : occ * salesPerOcc;
+  };
+  const be = solveSales((o) => at(o).mc.operatorProfit, 0);
+  const target = solveSales((o) => at(o).mc.operatorProfit, input.targetProfit);
+  const ownerBe = solveSales((o) => at(o).mc.ownerProfit, 0);
+  return {
+    method: "numeric",
+    fixedCosts: current.mc.operatorCost,
+    variableCostRatio: null,
+    contributionMarginRatio: null,
+    breakEvenSales: be,
+    targetSales: target,
+    breakEvenOccupancy: be !== null && salesPerOcc > 0 ? be / salesPerOcc : null,
+    safetyMargin: marginOf(be),
+    breakEvenRatio: ratioOf(be),
+    maxSales,
+    ownerBreakEvenSales: ownerBe,
+  };
+}

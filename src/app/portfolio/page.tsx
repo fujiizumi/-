@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AREAS, ROOM_PRESETS, findArea } from "@/data/areas";
 import { ExportDialog } from "@/components/ExportDialog";
 import { tryDownload } from "@/lib/env";
-import { DEFAULT_INPUT, buildInputForArea, simulate, type OperationModel } from "@/lib/profitSimulator";
+import { DEFAULT_INPUT, breakEvenAnalysis, buildInputForArea, simulate, type OperationModel } from "@/lib/profitSimulator";
 import {
   DEFAULT_SETTINGS,
   STORE_STATUSES,
@@ -100,7 +100,7 @@ export default function PortfolioPage() {
     () =>
       stores.map((s) => {
         const r = simulate(s.input);
-        return { s, r, achieved: r.operatingProfit >= s.input.targetProfit };
+        return { s, r, be: breakEvenAnalysis(s.input), achieved: r.operatingProfit >= s.input.targetProfit };
       }),
     [stores],
   );
@@ -157,8 +157,8 @@ export default function PortfolioPage() {
       setExportView({ title: "計画データ（JSON）", content: json });
   };
   const exportCsv = () => {
-    const head = ["店舗名", "ステータス", "開業予定", "エリア", "方式", "客室数", "ADR", "相場ADR", "稼働率", "RevPAR", "年間売上", "GOP", "GOP率", "営業利益", "本部費按分後", "目標", "判定"];
-    const lines = rows.map(({ s, r, achieved }) => [
+    const head = ["店舗名", "ステータス", "開業予定", "エリア", "方式", "客室数", "ADR", "相場ADR", "稼働率", "RevPAR", "年間売上", "損益分岐点売上高", "安全余裕率(%)", "GOP", "GOP率", "営業利益", "本部費按分後", "目標", "判定"];
+    const lines = rows.map(({ s, r, be, achieved }) => [
       s.name,
       s.status,
       s.openMonth,
@@ -170,6 +170,8 @@ export default function PortfolioPage() {
       (r.occupancy * 100).toFixed(1),
       Math.round(r.revPar),
       Math.round(r.totalRevenue),
+      be.breakEvenSales === null ? "到達不可" : Math.round(be.breakEvenSales),
+      be.safetyMargin === null ? "" : (be.safetyMargin * 100).toFixed(1),
       Math.round(r.gop),
       (r.gopRate * 100).toFixed(1),
       Math.round(r.operatingProfit),
@@ -304,11 +306,11 @@ export default function PortfolioPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
+            <table className="w-full min-w-[1280px] text-sm [&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
-                  {["店舗", "ステータス", "開業予定", "方式", "客室", "ADR", "相場比", "稼働率", "RevPAR", "年間売上", "GOP率", "営業利益", "本部費按分後", "判定", ""].map((h, i) => (
-                    <th key={i} className={`px-3 py-2 font-medium ${i >= 4 && i <= 12 ? "text-right" : "text-left"}`}>
+                  {["店舗", "ステータス", "開業予定", "方式", "客室", "ADR", "相場比", "稼働率", "RevPAR", "年間売上", "損益分岐売上", "安全余裕率", "GOP率", "営業利益", "本部費按分後", "判定", ""].map((h, i) => (
+                    <th key={i} className={`px-3 py-2 font-medium ${i >= 4 && i <= 14 ? "text-right" : "text-left"}`}>
                       {h}
                     </th>
                   ))}
@@ -317,7 +319,7 @@ export default function PortfolioPage() {
               <tbody className="tabular-nums">
                 {[...rows]
                   .sort((a, b) => a.s.openMonth.localeCompare(b.s.openMonth))
-                  .map(({ s, r, achieved }) => {
+                  .map(({ s, r, be, achieved }) => {
                     const mkt = s.input.marketAdr;
                     return (
                       <tr key={s.id} className="border-t border-slate-100">
@@ -353,6 +355,10 @@ export default function PortfolioPage() {
                         <td className="px-3 py-2 text-right">{pct(r.occupancy)}</td>
                         <td className="px-3 py-2 text-right">{yen(r.revPar)}</td>
                         <td className="px-3 py-2 text-right">{man(r.totalRevenue)}</td>
+                        <td className="px-3 py-2 text-right">{be.breakEvenSales === null ? "到達不可" : man(be.breakEvenSales)}</td>
+                        <td className={`px-3 py-2 text-right ${be.safetyMargin === null || be.safetyMargin < 0.1 ? "text-fall" : be.safetyMargin < 0.2 ? "text-amber-700" : ""}`}>
+                          {be.safetyMargin === null ? "—" : pct(be.safetyMargin)}
+                        </td>
                         <td className="px-3 py-2 text-right">{pct(r.gopRate)}</td>
                         <td className="px-3 py-2 text-right font-semibold">{man(r.operatingProfit)}</td>
                         <td className={`px-3 py-2 text-right ${r.operatingProfit - totals.hqPerStore < 0 ? "text-fall" : ""}`}>{man(r.operatingProfit - totals.hqPerStore)}</td>
