@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AREAS, ROOM_PRESETS, findArea } from "@/data/areas";
 import { CompetitorPanel } from "@/components/CompetitorPanel";
+import { ExportDialog } from "@/components/ExportDialog";
+import { getQuery, isStandalone, setStoreInUrl, tryDownload } from "@/lib/env";
 import { STORE_STATUSES, loadPortfolio, newStore, upsertStore, type StoreStatus } from "@/lib/portfolio";
 import {
   buildInputForArea,
@@ -115,11 +117,13 @@ export default function ProfitSimulator() {
     status: "候補",
     openMonth: "",
   });
+  const [exportText, setExportText] = useState<string | null>(null);
+  const [standalone, setStandalone] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [areaNotice, setAreaNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = getQuery();
     const storeId = params.get("store");
     const areaParam = findArea(params.get("area") ?? undefined);
     const roomsParam = parseInt(params.get("rooms") ?? "", 10);
@@ -136,6 +140,7 @@ export default function ProfitSimulator() {
     } else {
       setInput(base);
     }
+    setStandalone(isStandalone());
     setLoaded(true);
   }, []);
 
@@ -180,12 +185,7 @@ export default function ProfitSimulator() {
     rows.push(["", "GOP", Math.round(result.gop), Math.round(result.gop / months), (result.gopRate * 100).toFixed(2), ""]);
     rows.push(["", "営業利益（自社）", Math.round(result.operatingProfit), Math.round(result.operatingProfit / months), "", ""]);
     const csv = "﻿" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `hotel-profit-${input.model}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    if (!tryDownload(csv, `hotel-profit-${input.model}.csv`, "text/csv;charset=utf-8")) setExportText(csv.replace(/^\uFEFF/, ""));
   };
 
   const area = findArea(input.areaId);
@@ -206,7 +206,7 @@ export default function ProfitSimulator() {
     const id = !asNew && store.id ? store.id : base.id;
     upsertStore({ ...base, id, status: store.status, openMonth: store.openMonth || base.openMonth });
     setStore({ id, name, status: store.status, openMonth: store.openMonth || base.openMonth });
-    window.history.replaceState(null, "", `/simulator?store=${id}`);
+    setStoreInUrl(id);
     setSavedMsg(`「${name}」を多店舗計画に保存しました。`);
     setTimeout(() => setSavedMsg(null), 4000);
   };
@@ -231,9 +231,11 @@ export default function ProfitSimulator() {
           <button onClick={exportCsv} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
             CSV出力
           </button>
-          <button onClick={() => window.print()} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
-            印刷
-          </button>
+          {!standalone && (
+            <button onClick={() => window.print()} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
+              印刷
+            </button>
+          )}
           <button
             onClick={() => setInput({ ...DEFAULT_INPUT, model: input.model })}
             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50"
@@ -790,8 +792,10 @@ export default function ProfitSimulator() {
         </section>
       </div>
 
+      {exportText !== null && <ExportDialog title="損益表（CSV）" content={exportText} onClose={() => setExportText(null)} />}
+
       {/* スマホ用：入力中も利益を常に表示 */}
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-lg backdrop-blur lg:hidden print:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] shadow-lg backdrop-blur lg:hidden print:hidden">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 text-sm">
           <span className="text-xs text-slate-500">{profitLabel}</span>
           <span className="font-bold tabular-nums">{man(result.operatingProfit)}</span>

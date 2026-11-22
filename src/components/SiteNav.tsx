@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { isStandalone } from "@/lib/env";
 
 const LINKS = [
   { href: "/portfolio", label: "多店舗展開" },
@@ -11,11 +13,14 @@ const LINKS = [
 
 export function SiteNav() {
   const path = usePathname();
+  const [standalone, setStandalone] = useState(false);
+  useEffect(() => setStandalone(isStandalone()), []);
+  const links = standalone ? LINKS.filter((l) => l.href !== "/") : LINKS;
   return (
-    <nav className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur print:hidden">
+    <nav className="sticky top-[env(safe-area-inset-top,0px)] z-20 border-b border-slate-200 bg-white/90 backdrop-blur print:hidden">
       <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 py-2 text-sm">
         <span className="mr-3 shrink-0 font-bold text-ink">Hotel Expansion</span>
-        {LINKS.map((l) => {
+        {links.map((l) => {
           const active = l.href === "/" ? path === "/" : path?.startsWith(l.href);
           return (
             <Link

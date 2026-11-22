@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Competitor, CompetitorResponse } from "@/lib/competitors";
+import { build, type Competitor, type CompetitorResponse } from "@/lib/competitorsCore";
+import { loadCompetitors } from "@/lib/env";
 
 const TAX = 1.1;
 const yen = (v: number) => `${Math.round(v).toLocaleString()}円`;
@@ -36,6 +37,47 @@ export function CompetitorPanel({ lat, lng, adr, marketAdr, onLocation, onMarket
   const [showAll, setShowAll] = useState(false);
   const [latText, setLatText] = useState(String(lat));
   const [lngText, setLngText] = useState(String(lng));
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualText, setManualText] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
+
+  /** 「ホテル名, 平日料金, 休前日料金」を1行1軒で読み取る */
+  const applyManual = () => {
+    const wdList: Competitor[] = [];
+    const weList: Competitor[] = [];
+    const bad: number[] = [];
+    manualText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .forEach((line, i) => {
+        const cols = line.split(/[,，\t]/).map((c) => c.trim());
+        const num = (v?: string) => {
+          const n = parseFloat((v ?? "").replace(/[円¥,\s]/g, ""));
+          return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+        };
+        const name = cols[0];
+        const wd = num(cols[1]);
+        const we = num(cols[2]);
+        if (!name || (!wd && !we)) {
+          bad.push(i + 1);
+          return;
+        }
+        const base = { id: `m${i}`, name, distanceKm: null, rating: null, station: null, url: null };
+        if (wd) wdList.push({ ...base, price: wd });
+        if (we) weList.push({ ...base, price: we });
+      });
+    if (wdList.length + weList.length === 0) {
+      setManualError("読み取れる行がありません。「ホテル名, 平日料金, 休前日料金」の形で1行に1軒ずつ入力してください。");
+      return;
+    }
+    setManualError(bad.length ? `${bad.join("・")}行目は読み取れなかったため除外しました。` : null);
+    const q = { lat, lng, radiusKm: radius, refAdr: adr };
+    const wd = build("manual", { ...q, checkinDate: weekday || "平日" }, wdList);
+    const we = build("manual", { ...q, checkinDate: weekend || "休前日" }, weList);
+    setData({ weekday: wd, weekend: we });
+    onMarketAdr(estimateMarketAdr(wd, we));
+  };
 
   useEffect(() => {
     setWeekday(nextDow(3)); // 水曜
@@ -51,14 +93,7 @@ export function CompetitorPanel({ lat, lng, adr, marketAdr, onLocation, onMarket
     setLoading(true);
     setError(null);
     try {
-      const q = (d: string) =>
-        fetch(`/api/competitors?${new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), checkin: d, refAdr: String(adr) })}`).then(
-          async (r) => {
-            const j = await r.json();
-            if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-            return j as CompetitorResponse;
-          },
-        );
+      const q = (d: string) => loadCompetitors({ lat, lng, radius, radiusKm: radius, checkinDate: d, refAdr: adr });
       const [wd, we] = await Promise.all([q(weekday), q(weekend)]);
       setData({ weekday: wd, weekend: we });
       const m = estimateMarketAdr(wd, we);
@@ -94,7 +129,7 @@ export function CompetitorPanel({ lat, lng, adr, marketAdr, onLocation, onMarket
           <span
             className={`rounded-full px-2 py-0.5 text-xs font-semibold ${source === "rakuten" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}
           >
-            {source === "rakuten" ? "● 楽天トラベル 実データ" : "▲ デモデータ"}
+            {source === "rakuten" ? "● 楽天トラベル 実データ" : source === "manual" ? "● 手入力データ" : "▲ デモデータ"}
           </span>
         )}
       </div>
@@ -160,6 +195,28 @@ export function CompetitorPanel({ lat, lng, adr, marketAdr, onLocation, onMarket
         </div>
       </div>
       <p className="mt-1 text-[11px] text-slate-400">緯度・経度はGoogleマップで物件を右クリックすると確認できます。エリアを選ぶと代表地点が入ります。</p>
+
+      <div className="mt-3">
+        <button onClick={() => setManualOpen((v) => !v)} className="text-xs text-accent hover:underline">
+          {manualOpen ? "▾ 手入力を閉じる" : "▸ 競合の料金を手入力する（OTAで調べた価格など）"}
+        </button>
+        {manualOpen && (
+          <div className="mt-2 rounded-lg bg-slate-50 p-3">
+            <p className="text-xs text-slate-600">1行に1軒、「ホテル名, 平日料金, 休前日料金」（税込・1名1室）を入力してください。料金は片方だけでも構いません。</p>
+            <textarea
+              id="manual-competitors"
+              value={manualText}
+              onChange={(e) => setManualText(e.target.value)}
+              placeholder={"ホテルA, 9800, 13500\nホテルB, 8600, 11000\nホテルC, 12000"}
+              className="mt-2 h-32 w-full rounded-md border border-slate-300 p-2 font-mono text-xs"
+            />
+            <button onClick={applyManual} className="mt-2 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white">
+              手入力の価格で比較
+            </button>
+            {manualError && <p className="mt-2 text-xs text-amber-800">{manualError}</p>}
+          </div>
+        )}
+      </div>
 
       {error && <p className="mt-3 rounded bg-red-50 p-2 text-xs text-red-700">取得エラー：{error}</p>}
       {data?.weekday.message && <p className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">{data.weekday.message}</p>}

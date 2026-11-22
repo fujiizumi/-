@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AREAS, ROOM_PRESETS, findArea } from "@/data/areas";
+import { ExportDialog } from "@/components/ExportDialog";
+import { tryDownload } from "@/lib/env";
 import { DEFAULT_INPUT, buildInputForArea, simulate, type OperationModel } from "@/lib/profitSimulator";
 import {
   DEFAULT_SETTINGS,
@@ -73,6 +75,12 @@ export default function PortfolioPage() {
   const [areaRooms, setAreaRooms] = useState(100);
   const [areaModel, setAreaModel] = useState<OperationModel>("lease");
   const fileRef = useRef<HTMLInputElement>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [pendingImport, setPendingImport] = useState<Portfolio | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [exportView, setExportView] = useState<{ title: string; content: string } | null>(null);
 
   useEffect(() => {
     setPortfolio(loadPortfolio());
@@ -134,7 +142,8 @@ export default function PortfolioPage() {
   const duplicate = (s: Store) =>
     setPortfolio((p) => ({ ...p, stores: [...p.stores, { ...newStore(`${s.name}（コピー）`, s.input, s.openMonth), status: s.status }] }));
   const remove = (s: Store) => {
-    if (confirm(`「${s.name}」を多店舗計画から削除しますか？`)) setPortfolio((p) => ({ ...p, stores: p.stores.filter((x) => x.id !== s.id) }));
+    setPortfolio((p) => ({ ...p, stores: p.stores.filter((x) => x.id !== s.id) }));
+    setPendingDelete(null);
   };
   const addFromArea = (areaId: string, rooms: number, model: OperationModel) => {
     const a = findArea(areaId)!;
@@ -143,8 +152,9 @@ export default function PortfolioPage() {
   };
 
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(portfolio, null, 2)], { type: "application/json" });
-    download(blob, `hotel-portfolio-${new Date().toISOString().slice(0, 10)}.json`);
+    const json = JSON.stringify(portfolio, null, 2);
+    if (!tryDownload(json, `hotel-portfolio-${new Date().toISOString().slice(0, 10)}.json`, "application/json"))
+      setExportView({ title: "計画データ（JSON）", content: json });
   };
   const exportCsv = () => {
     const head = ["店舗名", "ステータス", "開業予定", "エリア", "方式", "客室数", "ADR", "相場ADR", "稼働率", "RevPAR", "年間売上", "GOP", "GOP率", "営業利益", "本部費按分後", "目標", "判定"];
@@ -168,16 +178,25 @@ export default function PortfolioPage() {
       achieved ? "達成" : "未達",
     ]);
     const csv = "﻿" + [head, ...lines].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    download(new Blob([csv], { type: "text/csv;charset=utf-8" }), "hotel-portfolio.csv");
+    if (!tryDownload(csv, "hotel-portfolio.csv", "text/csv;charset=utf-8")) setExportView({ title: "店舗一覧（CSV）", content: csv.slice(1) });
   };
-  const importJson = async (file: File) => {
+  const parseImport = (text: string) => {
     try {
-      const parsed = normalizePortfolio(JSON.parse(await file.text()));
-      const mode = confirm(`${parsed.stores.length}店舗を読み込みます。\nOK：現在の計画に追加　キャンセル：置き換え`);
-      setPortfolio((p) => (mode ? { ...p, stores: [...p.stores, ...parsed.stores] } : parsed));
+      const parsed = normalizePortfolio(JSON.parse(text));
+      setPendingImport(parsed);
+      setImportError(null);
     } catch {
-      alert("JSONファイルを読み込めませんでした。");
+      setPendingImport(null);
+      setImportError("計画データとして読み取れませんでした。「計画を書き出し（JSON）」で出力した内容をそのまま使ってください。");
     }
+  };
+  const finishImport = (mode: "append" | "replace") => {
+    if (!pendingImport) return;
+    const imported = pendingImport;
+    setPortfolio((p) => (mode === "append" ? { ...p, stores: [...p.stores, ...imported.stores] } : imported));
+    setPendingImport(null);
+    setImportOpen(false);
+    setImportText("");
   };
 
   const maxAbs = Math.max(1, ...projection.map((y) => Math.abs(y.companyProfit)));
@@ -202,7 +221,7 @@ export default function PortfolioPage() {
           <button onClick={exportJson} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
             計画を書き出し（JSON）
           </button>
-          <button onClick={() => fileRef.current?.click()} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
+          <button onClick={() => setImportOpen((v) => !v)} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
             読み込み
           </button>
           <input
@@ -210,14 +229,51 @@ export default function PortfolioPage() {
             type="file"
             accept="application/json,.json"
             className="hidden"
-            onChange={(e) => {
+            onChange={async (e) => {
               const f = e.target.files?.[0];
-              if (f) importJson(f);
+              if (f) parseImport(await f.text());
               e.target.value = "";
             }}
           />
         </div>
       </header>
+
+      {importOpen && (
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
+          <h2 className="font-semibold">計画データの読み込み</h2>
+          <p className="mt-1 text-xs text-slate-500">書き出したJSONファイルを選ぶか、内容を貼り付けてください。</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => fileRef.current?.click()} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50">
+              ファイルを選ぶ
+            </button>
+          </div>
+          <textarea
+            id="import-json"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder='{"stores":[...],"settings":{...}}'
+            className="mt-2 h-28 w-full rounded-md border border-slate-300 p-2 font-mono text-xs"
+          />
+          <button onClick={() => parseImport(importText)} disabled={!importText.trim()} className="mt-2 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+            貼り付けた内容を読み取る
+          </button>
+          {importError && <p className="mt-2 text-xs text-fall">{importError}</p>}
+          {pendingImport && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm">
+              <span>{pendingImport.stores.length}店舗を読み取りました。</span>
+              <button onClick={() => finishImport("append")} className="rounded-md bg-accent px-3 py-1 text-white">
+                今の計画に追加
+              </button>
+              <button onClick={() => finishImport("replace")} className="rounded-md border border-slate-300 bg-white px-3 py-1">
+                今の計画と置き換え
+              </button>
+              <button onClick={() => setPendingImport(null)} className="px-2 py-1 text-slate-500 hover:underline">
+                やめる
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* 全社KPI */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
@@ -307,9 +363,20 @@ export default function PortfolioPage() {
                           <button onClick={() => duplicate(s)} className="mr-2 text-slate-600 hover:underline">
                             複製
                           </button>
-                          <button onClick={() => remove(s)} className="text-fall hover:underline">
-                            削除
-                          </button>
+                          {pendingDelete === s.id ? (
+                            <>
+                              <button onClick={() => remove(s)} className="mr-2 rounded bg-fall px-2 py-0.5 font-semibold text-white">
+                                削除する
+                              </button>
+                              <button onClick={() => setPendingDelete(null)} className="text-slate-500 hover:underline">
+                                やめる
+                              </button>
+                            </>
+                          ) : (
+                            <button onClick={() => setPendingDelete(s.id)} className="text-fall hover:underline">
+                              削除
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -475,6 +542,8 @@ export default function PortfolioPage() {
         </p>
       </section>
 
+      {exportView && <ExportDialog title={exportView.title} content={exportView.content} onClose={() => setExportView(null)} />}
+
       <p className="mt-6 text-[11px] text-slate-400">店舗データはこのブラウザに保存されます。チームで共有する場合は「計画を書き出し（JSON）」したファイルを渡し、「読み込み」してください。</p>
     </main>
   );
@@ -490,10 +559,4 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: 
   );
 }
 
-function download(blob: Blob, filename: string) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
+
