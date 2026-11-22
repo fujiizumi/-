@@ -1,0 +1,698 @@
+<title>ホテル経営ボード</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: front-desk ledger — sticky tab bar, summary first, detail tables below; one column on phones */
+:root {
+  --bg: #F2F5F4;
+  --surface: #FFFFFF;
+  --sunk: #E8EEEC;
+  --ink: #15222A;
+  --ink-2: #47575F;
+  --muted: #74858B;
+  --line: #D8E0DE;
+  --accent: #0E6B66;
+  --accent-soft: #D5ECE9;
+  --brass: #9A6D17;
+  --brass-soft: #F3E7CC;
+  --neg: #B8501C;
+  --neg-soft: #F6E0D3;
+  --good: #1F7A4D;
+  --warn: #9C5E00;
+  --crit: #B3261E;
+  --f-display: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1618; --surface: #162125; --sunk: #1C2A2F; --ink: #E5ECEA; --ink-2: #AAB9B7; --muted: #7D8E8E;
+    --line: #27373C; --accent: #4FB3AA; --accent-soft: #173C3A; --brass: #D7A954; --brass-soft: #3A3020;
+    --neg: #E5895A; --neg-soft: #43281C; --good: #4CC38A; --warn: #E5A13B; --crit: #F07167; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1618; --surface: #162125; --sunk: #1C2A2F; --ink: #E5ECEA; --ink-2: #AAB9B7; --muted: #7D8E8E;
+  --line: #27373C; --accent: #4FB3AA; --accent-soft: #173C3A; --brass: #D7A954; --brass-soft: #3A3020;
+  --neg: #E5895A; --neg-soft: #43281C; --good: #4CC38A; --warn: #E5A13B; --crit: #F07167; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.65; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.num, td, .kpi-val { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding-block: 14px 6px; }
+.brand h1 { font-family: var(--f-display); font-size: 1.45rem; font-weight: 700; letter-spacing: .02em; }
+.brand .meta { color: var(--muted); font-size: .82rem; }
+.brand .today { margin-left: auto; font-family: var(--f-data); font-size: .8rem; color: var(--ink-2); }
+nav.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+nav.tabs a { flex: none; padding: 10px 14px 9px; color: var(--ink-2); text-decoration: none; font-weight: 500; font-size: .92rem; border-bottom: 3px solid transparent; }
+nav.tabs a:hover { color: var(--ink); }
+nav.tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+main { padding-block: 24px 56px; }
+section.view { display: grid; gap: 22px; }
+.view-head { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 20px; }
+.view-head h2 { font-family: var(--f-display); font-size: 1.35rem; font-weight: 700; }
+.view-head p { margin: 2px 0 0; color: var(--ink-2); font-size: .9rem; max-width: 62ch; }
+.controls { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.field { display: grid; gap: 3px; }
+.field > span { font-size: .72rem; color: var(--muted); letter-spacing: .06em; }
+select, input[type="number"], input[type="text"] { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; min-width: 0; }
+input[type="number"] { font-family: var(--f-data); font-size: .9rem; width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 7px 12px; cursor: pointer; font-size: .85rem; color: var(--ink-2); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.btn { border: 1px solid var(--accent); background: var(--surface); color: var(--accent); border-radius: 6px; padding: 7px 14px; cursor: pointer; font-weight: 500; font-size: .88rem; }
+.btn:hover { background: var(--accent-soft); }
+.btn.solid { background: var(--accent); color: var(--surface); }
+.btn.quiet { border-color: var(--line); color: var(--ink-2); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+.panel h3 { font-size: 1rem; font-weight: 700; }
+.panel .sub { color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.kpi { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.kpi-label { font-size: .74rem; color: var(--muted); letter-spacing: .05em; }
+.kpi-val { font-family: var(--f-data); font-size: 1.5rem; font-weight: 500; line-height: 1.25; }
+.kpi-note { font-size: .78rem; color: var(--ink-2); }
+.up { color: var(--good); } .down { color: var(--crit); }
+
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 860px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart text { fill: var(--muted); font-family: var(--f-data); font-size: 11px; }
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: .78rem; line-height: 1.5; padding: 8px 10px; border-radius: 6px; min-width: 150px; max-width: 240px; z-index: 3; box-shadow: 0 4px 14px rgb(0 0 0 / .18); }
+.tip b { font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .76rem; color: var(--ink-2); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: .72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; letter-spacing: .03em; }
+.chip.hi { background: var(--brass-soft); color: var(--brass); }
+.chip.lo { background: var(--neg-soft); color: var(--neg); }
+.chip.mid { background: var(--sunk); color: var(--ink-2); }
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.focus-list { display: grid; gap: 0; }
+.focus-item { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 4px 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.focus-item:first-of-type { border-top: 0; padding-top: 2px; }
+.focus-date { font-family: var(--f-data); font-size: .86rem; }
+.focus-item p { margin: 2px 0 0; font-size: .84rem; color: var(--ink-2); }
+
+.tbl-wrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
+table { border-collapse: collapse; width: 100%; font-size: .87rem; }
+th { text-align: left; font-weight: 500; font-size: .72rem; color: var(--muted); letter-spacing: .05em; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.r, th.r { text-align: right; }
+td .mono { font-family: var(--f-data); }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: var(--sunk); }
+tr.row[aria-expanded="true"] td { background: var(--accent-soft); }
+tr.weekend td:first-child { color: var(--accent); font-weight: 700; }
+tr.detail td { white-space: normal; background: var(--bg); padding: 16px 14px 20px; }
+.caret { display: inline-block; width: 1em; color: var(--muted); transition: transform .15s; }
+tr.row[aria-expanded="true"] .caret { transform: rotate(90deg); }
+.price { font-family: var(--f-data); font-weight: 500; font-size: .95rem; }
+
+.detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 760px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } }
+.rationale { margin: 0 0 14px; font-size: .88rem; line-height: 1.8; max-width: 70ch; }
+.factors { display: grid; gap: 7px; }
+.factor { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr) 4.2em; gap: 10px; align-items: center; font-size: .8rem; }
+.factor .lbl { color: var(--ink-2); }
+.factor .bar { position: relative; height: 10px; background: var(--sunk); border-radius: 3px; }
+.factor .bar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.factor .bar span { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.factor .v { font-family: var(--f-data); text-align: right; }
+.factor-detail { grid-column: 1 / -1; color: var(--muted); font-size: .74rem; margin-top: -4px; }
+.mini-h { font-size: .74rem; color: var(--muted); letter-spacing: .05em; margin: 0 0 6px; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px 14px; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+legend.fs { font-weight: 700; font-size: .9rem; margin-bottom: 10px; padding: 0; }
+.unit { position: relative; }
+.unit input { padding-right: 2.4em; }
+.unit em { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: .75rem; color: var(--muted); pointer-events: none; }
+.stack { display: grid; gap: 22px; }
+
+.pl-lines { display: grid; gap: 0; font-size: .88rem; }
+.pl-line { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.pl-line span:last-child { font-family: var(--f-data); }
+.pl-line.minus span:first-child { color: var(--ink-2); padding-left: 1em; }
+.pl-line.total { border-bottom: 0; border-top: 2px solid var(--ink); font-weight: 700; padding-top: 9px; margin-top: 2px; }
+.pl-line.sub-total { font-weight: 700; border-bottom: 1px solid var(--line); }
+
+.sens td { text-align: right; font-family: var(--f-data); font-size: .8rem; padding: 7px 9px; border: 2px solid var(--surface); }
+.sens th { text-align: right; }
+.sens td.cur { outline: 2px solid var(--ink); outline-offset: -2px; font-weight: 500; }
+.note { font-size: .78rem; color: var(--muted); }
+.callout { background: var(--brass-soft); color: var(--ink); border-radius: 8px; padding: 12px 14px; font-size: .86rem; }
+.callout b { color: var(--brass); }
+
+.edit-tbl input { width: 100%; min-width: 6em; }
+.edit-tbl td { padding: 6px 6px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: .86rem; z-index: 20; }
+footer { color: var(--muted); font-size: .76rem; padding-block: 0 32px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 520px) { .brand .today { margin-left: 0; width: 100%; } .kpi-val { font-size: 1.3rem; } .panel { padding: 16px; } .tbl-wrap { margin: 0 -16px; padding: 0 16px; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1 id="hotelName">サンプルホテル東京ベイ</h1>
+      <span class="meta" id="hotelMeta"></span>
+      <span class="today" id="today"></span>
+    </div>
+    <nav class="tabs" aria-label="画面切り替え">
+      <a href="#overview" data-view="overview">概況</a>
+      <a href="#pricing" data-view="pricing">料金設定</a>
+      <a href="#pnl" data-view="pnl">収支シミュレーター</a>
+      <a href="#rooms" data-view="rooms">客室・プラン</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- 概況 -->
+  <section class="view" id="view-overview">
+    <div class="view-head">
+      <div>
+        <h2>需要と収益の見通し</h2>
+        <p>全客室を部屋タイプごとにRevPAR最大の価格で販売した場合の予測です。基準価格のまま売った場合との差も示します。</p>
+      </div>
+      <div class="controls">
+        <div class="field"><span>予測期間</span>
+          <div class="seg" id="ovDays">
+            <button type="button" data-v="14">14日</button><button type="button" data-v="30" aria-pressed="true">30日</button><button type="button" data-v="60">60日</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="kpis" id="ovKpis"></div>
+    <div class="grid-2">
+      <div class="panel">
+        <div class="panel-head">
+          <div><h3>日別RevPAR予測（ホテル全体）</h3><div class="sub">棒にカーソルを合わせると稼働率・イベントを表示</div></div>
+        </div>
+        <div class="chart" id="ovChart"></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>推奨価格で販売したRevPAR</span><span><i style="background:var(--muted);height:2px;width:14px;vertical-align:3px"></i>基準価格のままのRevPAR</span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><h3>手を打つべき日</h3><div class="sub">需要の強弱が大きい日と推奨アクション</div></div></div>
+        <div class="focus-list" id="ovFocus"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 料金設定 -->
+  <section class="view" id="view-pricing" hidden>
+    <div class="view-head">
+      <div>
+        <h2>日別の推奨料金</h2>
+        <p>競合価格・イベント・天候・為替・周辺稼働から需要を読み、価格を上げたときの稼働低下も織り込んでRevPARが最大になる料金を選びます。行を開くと根拠が見られます。</p>
+      </div>
+      <div class="controls">
+        <label class="field"><span>部屋タイプ</span><select id="prRoom"></select></label>
+        <label class="field"><span>プラン</span><select id="prPlan"></select></label>
+        <label class="field"><span>表示日数</span><select id="prDays"><option value="14">14日</option><option value="30" selected>30日</option><option value="60">60日</option></select></label>
+        <button type="button" class="btn" id="prCopy">料金表をコピー</button>
+      </div>
+    </div>
+    <div class="kpis" id="prKpis"></div>
+    <div class="panel">
+      <div class="tbl-wrap">
+        <table id="prTable">
+          <thead><tr><th>宿泊日</th><th>需要</th><th class="r">推奨料金</th><th class="r">基準比</th><th class="r">稼働予測</th><th class="r">RevPAR</th><th class="r">RevPAR改善</th><th>主な要因</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 収支 -->
+  <section class="view" id="view-pnl" hidden>
+    <div class="view-head">
+      <div>
+        <h2>月次収支シミュレーター</h2>
+        <p>稼働率・ADR・販売チャネル・経費を入れると、GOPと損益分岐稼働率がすぐに出ます。数値はサンプルです。自館の実績に置き換えてください。</p>
+      </div>
+      <div class="controls"><button type="button" class="btn quiet" id="plReset">サンプル値に戻す</button></div>
+    </div>
+    <div class="kpis" id="plKpis"></div>
+    <div class="grid-2">
+      <div class="panel stack" id="plForm">
+        <fieldset><legend class="fs">販売</legend><div class="form-grid" id="plSales"></div></fieldset>
+        <fieldset><legend class="fs">販売チャネル・変動費</legend><div class="form-grid" id="plVar"></div></fieldset>
+        <fieldset><legend class="fs">固定費（月額）</legend><div class="form-grid" id="plFixed"></div></fieldset>
+      </div>
+      <div class="stack">
+        <div class="panel"><div class="panel-head"><h3>損益計算書（月次）</h3></div><div class="pl-lines" id="plLines"></div></div>
+        <div class="callout" id="plInsight"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div><h3>感度分析：稼働率 × ADR → 賃料控除後利益（百万円）</h3><div class="sub">枠で囲んだセルが現在の入力値。赤系は赤字、緑系は黒字</div></div></div>
+      <div class="tbl-wrap"><table class="sens" id="plSens"></table></div>
+    </div>
+  </section>
+
+  <!-- 客室 -->
+  <section class="view" id="view-rooms" hidden>
+    <div class="view-head">
+      <div>
+        <h2>客室・プランの設定</h2>
+        <p>自館の部屋タイプ・室数・料金レンジに置き換えると、概況と料金設定の計算に反映されます。設定はこのブラウザに保存されます。</p>
+      </div>
+      <div class="controls"><button type="button" class="btn quiet" id="rmReset">サンプルに戻す</button><button type="button" class="btn solid" id="rmSave">保存して反映</button></div>
+    </div>
+    <div class="panel">
+      <div class="form-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
+        <label class="field"><span>ホテル名</span><input type="text" id="rmHotel"></label>
+        <label class="field"><span>所在エリア</span><input type="text" id="rmArea"></label>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div><h3>部屋タイプ</h3><div class="sub" id="rmTotal"></div></div><button type="button" class="btn quiet" id="rmAddRoom">部屋タイプを追加</button></div>
+      <div class="tbl-wrap"><table class="edit-tbl" id="rmRooms"><thead><tr><th>名称</th><th>室数</th><th>基準価格（円）</th><th>下限（円）</th><th>上限（円）</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div><h3>宿泊プラン</h3><div class="sub">倍率は素泊まりの最適価格に掛けます（朝食付き 1.12 など）</div></div><button type="button" class="btn quiet" id="rmAddPlan">プランを追加</button></div>
+      <div class="tbl-wrap"><table class="edit-tbl" id="rmPlans"><thead><tr><th>プラン名</th><th>価格倍率</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+<footer class="wrap">外部要因（競合価格・イベント・天候・為替・周辺稼働）は現在デモ用の疑似データです。実データ連携時は同じ計算式のまま差し替えられます。</footer>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+const WD = ["日","月","火","水","木","金","土"];
+const yen = (n) => "¥" + Math.round(n).toLocaleString("ja-JP");
+const man = (n) => (n / 1e6).toFixed(1);
+const pct = (v, d = 1) => (v * 100).toFixed(d) + "%";
+const spct = (v, d = 1) => (v >= 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2200); }
+
+/* ---------- 設定（客室・プラン） ---------- */
+const DEFAULT_CFG = {
+  hotelName: "サンプルホテル東京ベイ",
+  area: "東京都江東区（お台場エリア）",
+  rooms: [
+    { name: "スタンダードツイン", rooms: 42, base: 12000, min: 7000, max: 32000 },
+    { name: "デラックスダブル", rooms: 28, base: 16000, min: 9000, max: 42000 },
+    { name: "スイート（ベイビュー）", rooms: 8, base: 32000, min: 20000, max: 90000 },
+    { name: "ファミリールーム", rooms: 16, base: 22000, min: 14000, max: 55000 },
+  ],
+  plans: [
+    { name: "素泊まり", mult: 1.0 },
+    { name: "朝食付き", mult: 1.12 },
+    { name: "1泊2食付き", mult: 1.35 },
+    { name: "早期割引（21日前）", mult: 0.9 },
+  ],
+};
+const clone = (o) => JSON.parse(JSON.stringify(o));
+let cfg = store.get("hb-cfg") || clone(DEFAULT_CFG);
+const totalRooms = () => cfg.rooms.reduce((s, r) => s + r.rooms, 0);
+
+/* ---------- 疑似シグナル（決定的） ---------- */
+function seeded(seed) {
+  let h = 1779033703 ^ seed.length;
+  for (let i = 0; i < seed.length; i++) { h = Math.imul(h ^ seed.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+  let a = h >>> 0;
+  return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const HOLIDAYS = new Set(["2026-01-01","2026-01-12","2026-02-11","2026-02-23","2026-03-20","2026-04-29","2026-05-03","2026-05-04","2026-05-05","2026-05-06","2026-07-20","2026-08-11","2026-09-21","2026-09-22","2026-09-23","2026-10-12","2026-11-03","2026-11-23",
+  "2027-01-01","2027-01-11","2027-02-11","2027-02-23","2027-03-21","2027-03-22","2027-04-29","2027-05-03","2027-05-04","2027-05-05","2027-07-19","2027-08-11","2027-09-20","2027-09-23","2027-10-11","2027-11-03","2027-11-23"]);
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dlabel = (d) => `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
+const EVENTS = [
+  { name: "国際展示場 大型見本市", w: 0.5 }, { name: "ベイエリア花火大会", w: 0.35 }, { name: "音楽フェスティバル", w: 0.3 },
+  { name: "国際会議（学会）", w: 0.25 }, { name: "スポーツ国際大会", w: 0.2 },
+];
+const sigCache = new Map();
+function signals(d) {
+  const k = iso(d);
+  if (sigCache.has(k)) return sigCache.get(k);
+  const c = seeded("competitor-" + k); const compIdx = 0.75 + c() * 0.55; const spread = 0.15 + c() * 0.15; const sample = 5 + Math.floor(c() * 8);
+  const e = seeded("event-" + k); const events = []; let boost = 0;
+  for (const ev of EVENTS) if (e() < ev.w * 0.35) { const att = 2000 + Math.floor(e() * 40000); events.push({ name: ev.name, att }); boost += Math.min(0.35, att / 120000); }
+  boost = Math.min(boost, 0.6);
+  const w = seeded("weather-" + k); const m = d.getMonth() + 1;
+  const conds = m >= 6 && m <= 9 ? ["晴れ","晴れ","曇り","雨","台風"] : (m === 12 || m <= 2) ? ["晴れ","曇り","曇り","雪"] : ["晴れ","晴れ","曇り","雨"];
+  const cond = conds[Math.floor(w() * conds.length) % conds.length];
+  const temp = Math.round((m >= 6 && m <= 9 ? 27 : m >= 3 && m <= 5 ? 19 : m >= 10 && m <= 11 ? 18 : 7) + (w() - 0.5) * 8);
+  let wImp = 0; if (cond === "晴れ") wImp = 0.05 + w() * 0.05; if (cond === "雨") wImp = -0.05 - w() * 0.05; if (cond === "台風") wImp = -0.12 - w() * 0.03; if (cond === "雪") wImp = -0.05;
+  const x = seeded("economy-" + k); const fx = Math.round((140 + x() * 25) * 10) / 10; const cci = Math.round(35 + x() * 30);
+  const ecoImp = (fx - 150) / 400 + (cci - 50) / 400;
+  const a = seeded("area-" + k); const nearOcc = 0.4 + a() * 0.58; const search = 0.6 + a() * 0.8;
+  const dow = d.getDay(); const weekend = dow === 0 || dow === 5 || dow === 6; const holiday = HOLIDAYS.has(k);
+  const season = m >= 3 && m <= 5 ? "春" : m >= 6 && m <= 8 ? "夏" : m >= 9 && m <= 11 ? "秋" : "冬";
+  let seasonMul = 1 + (weekend ? 0.12 : 0) + (holiday ? 0.15 : 0) + (season === "春" || season === "秋" ? 0.05 : 0);
+  const s = { compIdx, spread, sample, events, boost, cond, temp, wImp, fx, cci, ecoImp, nearOcc, search, weekend, holiday, season, seasonMul };
+  sigCache.set(k, s);
+  return s;
+}
+
+/* ---------- 価格エンジン（RevPAR最大化） ---------- */
+const BASE_OCC = 0.6;
+const occAt = (p, ref, occRef, sens) => clamp(occRef * Math.exp(-sens * (p - ref) / ref), 0.03, 0.98);
+function today0() { const t = new Date(); t.setHours(0, 0, 0, 0); return t; }
+function recommend(d, room, plan) {
+  const s = signals(d);
+  const daysOut = Math.max(0, Math.round((d - today0()) / 864e5));
+  const avgComp = Math.round(room.base * s.compIdx);
+  const factors = [
+    { label: "季節・曜日・祝日", impact: s.seasonMul - 1, detail: `${s.season} / ${s.weekend ? "週末" : "平日"}${s.holiday ? " / 祝日" : ""}` },
+    { label: "競合ホテル価格", impact: s.compIdx - 1, detail: `周辺${s.sample}軒平均 ${yen(avgComp)}（${yen(avgComp * (1 - s.spread))}〜${yen(avgComp * (1 + s.spread))}）` },
+    { label: "近隣イベント", impact: s.boost, detail: s.events.length ? s.events.map((e) => `${e.name}（想定${e.att.toLocaleString()}人）`).join(" / ") : "大規模イベントなし" },
+    { label: "天候予測", impact: s.wImp, detail: `${s.cond} / 最高気温${s.temp}℃` },
+    { label: "景気・為替", impact: s.ecoImp, detail: `${s.fx}円/USD / 消費者信頼感 ${s.cci}` },
+    { label: "周辺稼働・検索需要", impact: (s.nearOcc - 0.6) * 0.3 + (s.search - 1) * 0.1, detail: `周辺稼働率 ${pct(s.nearOcc, 0)} / 検索需要指数 ${s.search.toFixed(2)}` },
+  ];
+  const demandIndex = 1 + factors.reduce((a, f) => a + f.impact, 0);
+  const occRef = clamp(BASE_OCC * demandIndex, 0.05, 0.97);
+  const sens = clamp(1.6 - s.boost * 0.9 - (s.weekend ? 0.15 : 0) - (s.holiday ? 0.2 : 0) - (daysOut <= 3 ? 0.35 : 0) + (daysOut >= 45 ? 0.3 : 0), 0.5, 2.2);
+  const curve = []; let best = null; const steps = 48;
+  for (let i = 0; i <= steps; i++) {
+    const p = Math.round(room.min + (room.max - room.min) * i / steps);
+    const o = occAt(p, room.base, occRef, sens);
+    const c = { price: p, occ: o, revpar: p * o }; curve.push(c);
+    if (!best || c.revpar > best.revpar) best = c;
+  }
+  const roomPrice = Math.round(best.price / 100) * 100;
+  const occ = occAt(roomPrice, room.base, occRef, sens);
+  const revpar = roomPrice * occ;
+  const refRevpar = room.base * occRef;
+  const uplift = refRevpar > 0 ? revpar / refRevpar - 1 : 0;
+  const price = Math.round(roomPrice * plan.mult / 100) * 100;
+  return { date: d, daysOut, room, plan, roomPrice, price, occ, revpar, refOcc: occRef, refRevpar, uplift, demandIndex, sens, factors, curve, events: s.events, weekend: s.weekend, holiday: s.holiday };
+}
+function rationale(r) {
+  const ranked = [...r.factors].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+  const drivers = ranked.filter((f) => Math.abs(f.impact) >= 0.02).slice(0, 3).map((f) => `${f.label}（${f.detail}）`);
+  const dtext = drivers.length ? `${drivers.join("、")}から、平常時より${r.demandIndex >= 1 ? "強い" : "弱い"}需要を見込みます。` : "大きな変動要因はなく、平常時の需要を想定しています。";
+  const stext = r.sens <= 1.1 ? "直前または高需要日でお客様の値上げへの抵抗が小さいため、" : r.sens >= 1.9 ? "予約まで日数があり比較検討されやすい時期のため、" : "";
+  const dir = r.roomPrice >= r.room.base ? "引き上げても" : "引き下げると";
+  return `${stext}基準価格${yen(r.room.base)}を${yen(r.roomPrice)}まで${dir}稼働率${pct(r.occ, 0)}を見込めます。` +
+    `このときのRevPARは${yen(r.revpar)}で、基準価格のまま（${yen(r.refRevpar)}）より${spct(r.uplift)}。宿泊日の${r.daysOut}日前時点で、許容価格帯の中で最もRevPARが高くなる価格です。` + dtext;
+}
+function portfolio(d) {
+  const plan = { name: "素泊まり", mult: 1 };
+  const per = cfg.rooms.map((room) => recommend(d, room, plan));
+  const tr = totalRooms();
+  const revenue = per.reduce((a, r) => a + r.revpar * r.room.rooms, 0);
+  const sold = per.reduce((a, r) => a + r.occ * r.room.rooms, 0);
+  const refRev = per.reduce((a, r) => a + r.refRevpar * r.room.rooms, 0);
+  const s = signals(d);
+  return { date: d, revenue, sold, occ: sold / tr, revpar: revenue / tr, refRevpar: refRev / tr, adr: sold ? revenue / sold : 0, demandIndex: per.reduce((a, r) => a + r.demandIndex * r.room.rooms, 0) / tr, events: s.events, weekend: s.weekend, holiday: s.holiday, per };
+}
+const level = (di) => di >= 1.25 ? { c: "hi", t: "高需要" } : di <= 0.97 ? { c: "lo", t: "低需要" } : { c: "mid", t: "平常" };
+const days = (n) => { const t = today0(); return Array.from({ length: n }, (_, i) => { const d = new Date(t); d.setDate(t.getDate() + i); return d; }); };
+
+/* ---------- チャート補助 ---------- */
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
+function placeTip(tip, host, x, y) {
+  const w = host.clientWidth; tip.hidden = false;
+  const tw = tip.offsetWidth; let left = x + 14; if (left + tw > w) left = x - tw - 14; if (left < 0) left = 0;
+  tip.style.left = left + "px"; tip.style.top = Math.max(0, y - tip.offsetHeight - 10) + "px";
+}
+function rowMeta(d) { return d.holiday ? "祝日" : ""; }
+
+/* ---------- 概況 ---------- */
+let ovN = 30;
+function renderOverview() {
+  const list = days(ovN).map(portfolio);
+  const rev = list.reduce((a, p) => a + p.revenue, 0);
+  const sold = list.reduce((a, p) => a + p.sold, 0);
+  const tr = totalRooms();
+  const revpar = rev / (tr * ovN);
+  const ref = list.reduce((a, p) => a + p.refRevpar, 0) / ovN;
+  $("ovKpis").innerHTML = [
+    ["平均稼働率", pct(sold / (tr * ovN)), `販売見込み ${Math.round(sold).toLocaleString()}室泊`],
+    ["ADR（平均客室単価）", yen(rev / sold), "素泊まり換算"],
+    ["RevPAR", yen(revpar), `基準価格のまま ${yen(ref)}`],
+    ["RevPAR改善", `<span class="${revpar >= ref ? "up" : "down"}">${spct(revpar / ref - 1)}</span>`, "推奨価格を採用した場合"],
+    [`客室売上見込み（${ovN}日）`, `${man(rev)}<small style="font-size:.6em">百万円</small>`, `差額 ${(rev - ref * tr * ovN) >= 0 ? "+" : ""}${man(rev - ref * tr * ovN)}百万円`],
+  ].map(([l, v, n]) => `<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-val">${v}</span><span class="kpi-note">${n}</span></div>`).join("");
+  drawOvChart(list);
+  // 注目日
+  const sorted = [...list].sort((a, b) => b.demandIndex - a.demandIndex);
+  const hi = sorted.slice(0, 3); const lo = sorted.slice(-3).reverse();
+  const item = (p, kind) => {
+    const lv = level(p.demandIndex);
+    const ev = p.events.length ? p.events[0].name + (p.events.length > 1 ? ` ほか${p.events.length - 1}件` : "") : "";
+    const act = kind === "hi"
+      ? `ADR ${yen(p.adr)}・稼働${pct(p.occ, 0)}見込み。${ev ? ev + "あり。" : ""}早期割引を止め、連泊下限（2泊〜）やOTA在庫の絞り込みで高単価の直販を優先。`
+      : `需要が弱く、値下げで稼働${pct(p.occ, 0)}を確保する日（ADR ${yen(p.adr)}）。${ev ? ev + "はあるが影響は小さめ。" : ""}値下げ幅を抑えるため、法人・団体営業や連泊割、朝食付きプランの露出で需要を上乗せ。`;
+    return `<div class="focus-item"><div><div class="focus-date">${dlabel(p.date)}</div><span class="chip ${lv.c}">${lv.t}</span></div><div><b>${yen(p.revpar)}</b> <span class="note">RevPAR</span><p>${esc(act)}</p></div></div>`;
+  };
+  $("ovFocus").innerHTML = hi.map((p) => item(p, "hi")).join("") + lo.map((p) => item(p, "lo")).join("");
+}
+function drawOvChart(list) {
+  const host = $("ovChart"); const W = Math.max(300, host.clientWidth); const H = 260;
+  const m = { t: 10, r: 6, b: 26, l: 50 }; const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const ymax = niceMax(Math.max(...list.map((p) => Math.max(p.revpar, p.refRevpar))) * 1.05);
+  const y = (v) => m.t + ih - (v / ymax) * ih; const bw = iw / list.length; const gap = Math.min(4, bw * 0.25);
+  let g = "";
+  for (let i = 0; i <= 4; i++) { const v = ymax * i / 4; g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + "k" : v}</text>`; }
+  const every = list.length > 40 ? 7 : list.length > 20 ? 3 : 1;
+  let bars = "", ref = "", labels = "", hits = "";
+  list.forEach((p, i) => {
+    const x = m.l + i * bw + gap / 2; const w = Math.max(1, bw - gap); const top = y(p.revpar); const h = m.t + ih - top; const r = Math.min(4, w / 2);
+    bars += `<path d="M${x},${m.t + ih} V${top + r} Q${x},${top} ${x + r},${top} H${x + w - r} Q${x + w},${top} ${x + w},${top + r} V${m.t + ih} Z" fill="var(--accent)" opacity="${p.weekend || p.holiday ? 1 : 0.62}"/>`;
+    ref += `${i ? "L" : "M"}${m.l + i * bw + bw / 2},${y(p.refRevpar)}`;
+    if (i % every === 0) labels += `<text x="${m.l + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${p.date.getMonth() + 1}/${p.date.getDate()}</text>`;
+    hits += `<rect x="${m.l + i * bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-i="${i}"/>`;
+  });
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="日別RevPAR予測">${g}${bars}<path d="${ref}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"/>${labels}<g class="hits">${hits}</g></svg><div class="tip" hidden></div>`;
+  const tip = host.querySelector(".tip");
+  host.querySelector(".hits").addEventListener("pointermove", (e) => {
+    const i = +e.target.dataset.i; if (Number.isNaN(i)) return; const p = list[i]; const lv = level(p.demandIndex);
+    tip.innerHTML = `<b>${dlabel(p.date)}${p.holiday ? " 祝日" : ""}</b> ${lv.t}<br>RevPAR ${yen(p.revpar)}（基準 ${yen(p.refRevpar)}）<br>稼働率 ${pct(p.occ, 0)} / ADR ${yen(p.adr)}${p.events.length ? "<br>" + p.events.map((e) => esc(e.name)).join("、") : ""}`;
+    const rect = host.getBoundingClientRect(); placeTip(tip, host, e.clientX - rect.left, y(p.revpar));
+  });
+  host.querySelector(".hits").addEventListener("pointerleave", () => (tip.hidden = true));
+}
+$("ovDays").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return; ovN = +b.dataset.v;
+  $("ovDays").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b)); renderOverview();
+});
+
+/* ---------- 料金設定 ---------- */
+let prOpen = null, prRows = [];
+function fillSelects() {
+  const rs = $("prRoom"), ps = $("prPlan"); const rv = rs.value, pv = ps.value;
+  rs.innerHTML = cfg.rooms.map((r, i) => `<option value="${i}">${esc(r.name)}（${r.rooms}室）</option>`).join("");
+  ps.innerHTML = cfg.plans.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join("");
+  if (rv && +rv < cfg.rooms.length) rs.value = rv; if (pv && +pv < cfg.plans.length) ps.value = pv;
+}
+function renderPricing() {
+  const room = cfg.rooms[+$("prRoom").value || 0]; const plan = cfg.plans[+$("prPlan").value || 0];
+  if (!room || !plan) return;
+  prRows = days(+$("prDays").value).map((d) => recommend(d, room, plan));
+  const avg = (f) => prRows.reduce((a, r) => a + f(r), 0) / prRows.length;
+  const prices = prRows.map((r) => r.price);
+  $("prKpis").innerHTML = [
+    ["平均推奨料金", yen(avg((r) => r.price)), `${yen(Math.min(...prices))} 〜 ${yen(Math.max(...prices))}`],
+    ["平均稼働予測", pct(avg((r) => r.occ)), `${room.rooms}室中 約${(avg((r) => r.occ) * room.rooms).toFixed(1)}室/日`],
+    ["平均RevPAR（素泊まり換算）", yen(avg((r) => r.revpar)), `基準価格のまま ${yen(avg((r) => r.refRevpar))}`],
+    ["RevPAR改善", `<span class="up">${spct(avg((r) => r.revpar) / avg((r) => r.refRevpar) - 1)}</span>`, "期間平均"],
+  ].map(([l, v, n]) => `<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-val">${v}</span><span class="kpi-note">${n}</span></div>`).join("");
+  const tb = $("prTable").tBodies[0];
+  tb.innerHTML = prRows.map((r, i) => {
+    const lv = level(r.demandIndex); const vsBase = r.roomPrice / r.room.base - 1;
+    const top = [...r.factors].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))[0];
+    const key = iso(r.date); const open = prOpen === key;
+    return `<tr class="row${r.weekend || r.holiday ? " weekend" : ""}" data-i="${i}" tabindex="0" aria-expanded="${open}"><td><span class="caret">›</span>${dlabel(r.date)}${r.holiday ? " 祝" : ""}</td><td><span class="chip ${lv.c}">${lv.t}</span></td><td class="r price">${yen(r.price)}</td><td class="r mono ${vsBase >= 0 ? "up" : "down"}">${spct(vsBase, 0)}</td><td class="r mono">${pct(r.occ, 0)}</td><td class="r mono">${yen(r.revpar)}</td><td class="r mono up">${spct(r.uplift)}</td><td class="note">${esc(top.label)} ${spct(top.impact, 0).replace("%", "pt")}</td></tr>` +
+      (open ? `<tr class="detail"><td colspan="8">${detailHTML(r)}</td></tr>` : "");
+  }).join("");
+  const det = tb.querySelector(".curve"); if (det) drawCurve(det, prRows.find((r) => iso(r.date) === prOpen));
+}
+function detailHTML(r) {
+  const mx = Math.max(0.3, ...r.factors.map((f) => Math.abs(f.impact)));
+  const fs = r.factors.map((f) => {
+    const w = Math.abs(f.impact) / mx * 50; const pos = f.impact >= 0;
+    return `<div class="factor"><span class="lbl">${esc(f.label)}</span><span class="bar"><span style="${pos ? "left:50%" : "right:50%"};width:${w}%;background:${pos ? "var(--accent)" : "var(--neg)"}"></span></span><span class="v">${(f.impact * 100 >= 0 ? "+" : "") + (f.impact * 100).toFixed(1)}pt</span><span class="factor-detail">${esc(f.detail)}</span></div>`;
+  }).join("");
+  return `<div class="detail-grid"><div><p class="mini-h">この価格の根拠</p><p class="rationale">${esc(rationale(r))}</p><p class="mini-h">需要への影響（基準稼働率に対する加減）</p><div class="factors">${fs}</div><p class="note" style="margin-top:10px">需要指数 ${r.demandIndex.toFixed(2)} ／ 価格感度 ${r.sens.toFixed(2)}（低いほど値上げしても稼働が落ちにくい）／ ${esc(r.plan.name)}倍率 ×${r.plan.mult}</p></div>` +
+    `<div><p class="mini-h">価格別のRevPAR（素泊まり・${esc(r.room.name)}）</p><div class="chart curve"></div><div class="legend"><span><i style="background:var(--accent);height:2px;width:14px;vertical-align:3px"></i>価格ごとのRevPAR</span><span><i style="background:var(--brass)"></i>推奨価格</span><span><i style="background:var(--muted);height:2px;width:14px;vertical-align:3px"></i>基準価格</span></div></div></div>`;
+}
+function drawCurve(host, r) {
+  const W = Math.max(280, host.clientWidth); const H = 200; const m = { t: 12, r: 10, b: 26, l: 50 }; const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const xs = r.curve.map((c) => c.price); const x0 = xs[0], x1 = xs[xs.length - 1];
+  const ymax = niceMax(Math.max(...r.curve.map((c) => c.revpar)) * 1.08);
+  const x = (v) => m.l + (v - x0) / (x1 - x0) * iw; const y = (v) => m.t + ih - v / ymax * ih;
+  let g = ""; for (let i = 0; i <= 4; i++) { const v = ymax * i / 4; g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${(v / 1000).toFixed(v % 1000 ? 1 : 0)}k</text>`; }
+  for (let i = 0; i <= 4; i++) { const v = x0 + (x1 - x0) * i / 4; g += `<text x="${x(v)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === 4 ? "end" : "middle"}">${(v / 1000).toFixed(0)}k</text>`; }
+  const path = r.curve.map((c, i) => `${i ? "L" : "M"}${x(c.price).toFixed(1)},${y(c.revpar).toFixed(1)}`).join("");
+  const area = path + `L${x(x1)},${m.t + ih}L${x(x0)},${m.t + ih}Z`;
+  const ox = x(r.roomPrice), oy = y(r.revpar), bx = x(r.room.base);
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="価格別RevPAR曲線">${g}<path d="${area}" fill="var(--accent)" opacity=".1"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>` +
+    `<line x1="${bx}" x2="${bx}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"/>` +
+    `<line x1="${ox}" x2="${ox}" y1="${oy}" y2="${m.t + ih}" stroke="var(--brass)" stroke-width="1.5"/><circle cx="${ox}" cy="${oy}" r="5" fill="var(--brass)" stroke="var(--bg)" stroke-width="2"/>` +
+    `<text x="${ox + (ox > W - 120 ? -8 : 8)}" y="${oy - 8}" text-anchor="${ox > W - 120 ? "end" : "start"}" style="fill:var(--ink);font-weight:500">${yen(r.roomPrice)}</text>` +
+    `<rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/><line class="xh" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}" stroke="var(--ink-2)" stroke-width="1" visibility="hidden"/></svg><div class="tip" hidden></div>`;
+  const tip = host.querySelector(".tip"), hit = host.querySelector(".hit"), xh = host.querySelector(".xh");
+  hit.addEventListener("pointermove", (e) => {
+    const rect = host.getBoundingClientRect(); const px = (e.clientX - rect.left) * (W / rect.width);
+    let c = r.curve[0]; for (const k of r.curve) if (Math.abs(x(k.price) - px) < Math.abs(x(c.price) - px)) c = k;
+    xh.setAttribute("x1", x(c.price)); xh.setAttribute("x2", x(c.price)); xh.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>${yen(c.price)}</b><br>稼働率 ${pct(c.occ, 0)}<br>RevPAR ${yen(c.revpar)}`;
+    placeTip(tip, host, x(c.price) * rect.width / W, y(c.revpar));
+  });
+  hit.addEventListener("pointerleave", () => { tip.hidden = true; xh.setAttribute("visibility", "hidden"); });
+}
+function toggleRow(tr) { const r = prRows[+tr.dataset.i]; const k = iso(r.date); prOpen = prOpen === k ? null : k; renderPricing(); }
+$("prTable").addEventListener("click", (e) => { const tr = e.target.closest("tr.row"); if (tr) toggleRow(tr); });
+$("prTable").addEventListener("keydown", (e) => { const tr = e.target.closest("tr.row"); if (tr && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleRow(tr); const again = $("prTable").querySelector(`tr.row[data-i="${tr.dataset.i}"]`); again && again.focus(); } });
+["prRoom", "prPlan", "prDays"].forEach((id) => $(id).addEventListener("change", () => { prOpen = null; renderPricing(); }));
+$("prCopy").addEventListener("click", () => {
+  const text = ["宿泊日\t部屋タイプ\tプラン\t推奨料金\t稼働予測"].concat(prRows.map((r) => `${iso(r.date)}\t${r.room.name}\t${r.plan.name}\t${r.price}\t${pct(r.occ, 0)}`)).join("\n");
+  const fallback = () => { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); toast("料金表をコピーしました"); } catch (e) { toast("コピーできませんでした"); } ta.remove(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => toast("料金表をコピーしました（表計算ソフトに貼り付けできます）"), fallback); else fallback();
+});
+
+/* ---------- 収支シミュレーター ---------- */
+const PL_FIELDS = {
+  plSales: [["rooms", "客室数", "室", 1], ["days", "営業日数", "日", 1], ["occ", "稼働率", "%", 0.1], ["adr", "ADR（客室単価）", "円", 100], ["guests", "1室あたり人数", "人", 0.1], ["anc", "付帯収入／人（料飲等）", "円", 100]],
+  plVar: [["ota", "OTA経由の比率", "%", 1], ["comm", "OTA手数料率", "%", 0.5], ["varc", "変動費／販売室（清掃・リネン・アメニティ）", "円", 100], ["fbc", "料飲原価率", "%", 1]],
+  plFixed: [["labor", "人件費", "円", 100000], ["util", "水道光熱費", "円", 100000], ["other", "その他営業費（システム・広告・修繕）", "円", 100000], ["rent", "賃料・リース料", "円", 100000]],
+};
+const PL_DEFAULT = { rooms: 94, days: 30, occ: 78, adr: 15800, guests: 1.7, anc: 1800, ota: 55, comm: 12, varc: 3200, fbc: 32, labor: 12000000, util: 2600000, other: 2200000, rent: 7500000 };
+let pl = Object.assign({}, PL_DEFAULT, store.get("hb-pl") || {});
+function buildPlForm() {
+  for (const [box, list] of Object.entries(PL_FIELDS)) {
+    $(box).innerHTML = list.map(([k, l, u, st]) => `<label class="field"><span>${l}</span><span class="unit"><input type="number" id="pl-${k}" step="${st}" min="0" value="${pl[k]}"><em>${u}</em></span></label>`).join("");
+  }
+}
+function calcPl(p, occOverride, adrOverride) {
+  const occ = (occOverride ?? p.occ) / 100, adr = adrOverride ?? p.adr;
+  const avail = p.rooms * p.days, sold = avail * occ;
+  const roomRev = sold * adr, ancRev = sold * p.guests * p.anc, revenue = roomRev + ancRev;
+  const comm = roomRev * (p.ota / 100) * (p.comm / 100), fb = ancRev * (p.fbc / 100), varc = sold * p.varc;
+  const undistributed = p.labor + p.util + p.other;
+  const gop = revenue - comm - fb - varc - undistributed;
+  const profit = gop - p.rent;
+  const netPerRoom = adr * (1 - (p.ota / 100) * (p.comm / 100)) + p.guests * p.anc * (1 - p.fbc / 100) - p.varc;
+  const beOcc = netPerRoom > 0 ? (undistributed + p.rent) / netPerRoom / avail : Infinity;
+  return { avail, sold, roomRev, ancRev, revenue, comm, fb, varc, undistributed, gop, profit, beOcc, revpar: roomRev / avail, goppar: gop / avail, cpor: (comm + fb + varc + undistributed + p.rent) / Math.max(sold, 1), netPerRoom };
+}
+function renderPnl() {
+  const c = calcPl(pl);
+  const sign = (v) => `<span class="${v >= 0 ? "up" : "down"}">${v >= 0 ? "" : "▲"}${man(Math.abs(v))}</span><small style="font-size:.6em">百万円</small>`;
+  $("plKpis").innerHTML = [
+    ["総売上（月）", `${man(c.revenue)}<small style="font-size:.6em">百万円</small>`, `客室 ${man(c.roomRev)} / 付帯 ${man(c.ancRev)}`],
+    ["GOP（営業総利益）", sign(c.gop), `GOP率 ${pct(c.gop / c.revenue)}`],
+    ["賃料控除後利益", sign(c.profit), `売上比 ${pct(c.profit / c.revenue)}`],
+    ["損益分岐稼働率", isFinite(c.beOcc) ? `<span class="${c.beOcc <= pl.occ / 100 ? "up" : "down"}">${pct(c.beOcc)}</span>` : "—", isFinite(c.beOcc) ? `現在の稼働率との差 ${((pl.occ / 100 - c.beOcc) * 100).toFixed(1)}pt` : "1室あたりの利益がマイナスです"],
+    ["RevPAR / GOPPAR", `${yen(c.revpar)}`, `GOPPAR ${yen(c.goppar)} ／ CPOR ${yen(c.cpor)}`],
+  ].map(([l, v, n]) => `<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-val">${v}</span><span class="kpi-note">${n}</span></div>`).join("");
+  const line = (cls, l, v) => `<div class="pl-line ${cls}"><span>${l}</span><span>${v < 0 ? "▲" : ""}${yen(Math.abs(v))}</span></div>`;
+  $("plLines").innerHTML = [
+    line("", `客室売上（${Math.round(c.sold).toLocaleString()}室泊 × ${yen(pl.adr)}）`, c.roomRev), line("", "付帯売上（料飲・その他）", c.ancRev), line("sub-total", "総売上", c.revenue),
+    line("minus", "OTA手数料", -c.comm), line("minus", "料飲原価", -c.fb), line("minus", "客室変動費", -c.varc), line("minus", "人件費", -pl.labor), line("minus", "水道光熱費", -pl.util), line("minus", "その他営業費", -pl.other),
+    line("sub-total", "GOP（営業総利益）", c.gop), line("minus", "賃料・リース料", -pl.rent), line("total", "賃料控除後利益", c.profit),
+  ].join("");
+  // インサイト：直販比率+10pt、ADR+5%、稼働+5pt の効果
+  const d1 = calcPl(Object.assign({}, pl, { ota: Math.max(0, pl.ota - 10) })).profit - c.profit;
+  const d2 = calcPl(pl, null, pl.adr * 1.05).profit - c.profit;
+  const d3 = calcPl(pl, Math.min(100, pl.occ + 5)).profit - c.profit;
+  $("plInsight").innerHTML = `<b>改善の手がかり（月あたりの利益増）</b><br>OTA比率を10pt下げて直販へ：<b>+${man(d1)}百万円</b>　／　ADRを5%上げる：<b>+${man(d2)}百万円</b>　／　稼働率を5pt上げる：<b>+${man(d3)}百万円</b><br><span class="note">ADRの値上げは稼働低下を伴うため、料金設定タブの需要曲線で効果を確かめてください。</span>`;
+  // 感度分析
+  const occs = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95]; const adrs = [-0.2, -0.1, 0, 0.1, 0.2];
+  const vals = occs.map((o) => adrs.map((a) => calcPl(pl, o, pl.adr * (1 + a)).profit));
+  const mx = Math.max(...vals.flat().map(Math.abs)) || 1;
+  const curOcc = occs.reduce((b, o) => (Math.abs(o - pl.occ) < Math.abs(b - pl.occ) ? o : b), occs[0]);
+  let h = `<thead><tr><th style="text-align:left">稼働率 ＼ ADR</th>${adrs.map((a) => `<th>${yen(pl.adr * (1 + a))}<br><span class="note">${a ? spct(a, 0) : "現在"}</span></th>`).join("")}</tr></thead><tbody>`;
+  occs.forEach((o, i) => {
+    h += `<tr><th style="text-align:left">${o}%</th>` + adrs.map((a, j) => {
+      const v = vals[i][j]; const k = Math.round(Math.sqrt(Math.abs(v) / mx) * 62);
+      return `<td class="${o === curOcc && a === 0 ? "cur" : ""}" style="background:color-mix(in oklab, ${v >= 0 ? "var(--good)" : "var(--crit)"} ${k}%, var(--surface));color:${k > 40 ? "var(--surface)" : "var(--ink)"}">${v < 0 ? "▲" : ""}${man(Math.abs(v))}</td>`;
+    }).join("") + "</tr>";
+  });
+  $("plSens").innerHTML = h + "</tbody>";
+}
+$("plForm").addEventListener("input", (e) => {
+  const k = e.target.id && e.target.id.replace("pl-", ""); if (!(k in PL_DEFAULT)) return;
+  const v = parseFloat(e.target.value); if (!isFinite(v) || v < 0) return;
+  pl[k] = v; store.set("hb-pl", pl); renderPnl();
+});
+$("plReset").addEventListener("click", () => { pl = Object.assign({}, PL_DEFAULT); store.del("hb-pl"); buildPlForm(); renderPnl(); toast("サンプル値に戻しました"); });
+
+/* ---------- 客室・プラン ---------- */
+let draft = clone(cfg);
+function renderRooms() {
+  $("rmHotel").value = draft.hotelName; $("rmArea").value = draft.area;
+  $("rmRooms").tBodies[0].innerHTML = draft.rooms.map((r, i) => `<tr data-i="${i}"><td><input type="text" data-k="name" value="${esc(r.name)}" aria-label="名称"></td>` +
+    ["rooms", "base", "min", "max"].map((k) => `<td><input type="number" data-k="${k}" min="0" step="${k === "rooms" ? 1 : 500}" value="${r[k]}" aria-label="${k}"></td>`).join("") +
+    `<td><button type="button" class="btn quiet" data-del="${i}" ${draft.rooms.length < 2 ? "disabled" : ""}>削除</button></td></tr>`).join("");
+  $("rmPlans").tBodies[0].innerHTML = draft.plans.map((p, i) => `<tr data-i="${i}"><td><input type="text" data-k="name" value="${esc(p.name)}" aria-label="プラン名"></td><td><input type="number" data-k="mult" step="0.01" min="0.1" value="${p.mult}" aria-label="倍率"></td><td><button type="button" class="btn quiet" data-del="${i}" ${draft.plans.length < 2 ? "disabled" : ""}>削除</button></td></tr>`).join("");
+  rmTotal();
+}
+function rmTotal() { $("rmTotal").textContent = `合計 ${draft.rooms.reduce((s, r) => s + (+r.rooms || 0), 0)}室`; }
+function bindEdit(tblId, arr) {
+  $(tblId).addEventListener("input", (e) => { const tr = e.target.closest("tr[data-i]"); if (!tr) return; const k = e.target.dataset.k; const it = draft[arr][+tr.dataset.i]; it[k] = k === "name" ? e.target.value : parseFloat(e.target.value) || 0; rmTotal(); });
+  $(tblId).addEventListener("click", (e) => { const b = e.target.closest("[data-del]"); if (!b) return; draft[arr].splice(+b.dataset.del, 1); renderRooms(); });
+}
+bindEdit("rmRooms", "rooms"); bindEdit("rmPlans", "plans");
+$("rmHotel").addEventListener("input", (e) => (draft.hotelName = e.target.value));
+$("rmArea").addEventListener("input", (e) => (draft.area = e.target.value));
+$("rmAddRoom").addEventListener("click", () => { draft.rooms.push({ name: "新しい部屋タイプ", rooms: 10, base: 15000, min: 9000, max: 40000 }); renderRooms(); });
+$("rmAddPlan").addEventListener("click", () => { draft.plans.push({ name: "新しいプラン", mult: 1.0 }); renderRooms(); });
+$("rmSave").addEventListener("click", () => {
+  for (const r of draft.rooms) {
+    if (!r.name.trim() || r.rooms <= 0 || r.base <= 0) return toast(`「${r.name || "名称未入力"}」の室数と基準価格は1以上にしてください`);
+    if (!(r.min < r.base && r.base < r.max)) return toast(`「${r.name}」は 下限 < 基準価格 < 上限 にしてください`);
+  }
+  if (draft.plans.some((p) => !p.name.trim() || p.mult <= 0)) return toast("プラン名と倍率を確認してください");
+  cfg = clone(draft); store.set("hb-cfg", cfg); applyCfg(); toast("保存しました。概況と料金設定に反映されています");
+});
+$("rmReset").addEventListener("click", () => { draft = clone(DEFAULT_CFG); cfg = clone(DEFAULT_CFG); store.del("hb-cfg"); renderRooms(); applyCfg(); toast("サンプル設定に戻しました"); });
+
+function applyCfg() {
+  $("hotelName").textContent = cfg.hotelName || "ホテル経営ボード";
+  $("hotelMeta").textContent = `${cfg.area} ・ 全${totalRooms()}室`;
+  fillSelects(); renderOverview(); renderPricing();
+}
+
+/* ---------- ルーティング ---------- */
+const VIEWS = ["overview", "pricing", "pnl", "rooms"];
+function route() {
+  const v = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
+  VIEWS.forEach((n) => ($("view-" + n).hidden = n !== v));
+  document.querySelectorAll("nav.tabs a").forEach((a) => a.dataset.view === v ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  if (v === "overview") renderOverview();
+  if (v === "pricing") renderPricing();
+}
+window.addEventListener("hashchange", route);
+let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(route, 150); });
+
+const t = new Date();
+$("today").textContent = `${t.getFullYear()}年${t.getMonth() + 1}月${t.getDate()}日（${WD[t.getDay()]}）`;
+buildPlForm(); renderPnl(); renderRooms(); applyCfg(); route();
+})();
+</script>
