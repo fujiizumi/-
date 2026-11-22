@@ -1,15 +1,19 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SiteNav } from "@/components/SiteNav";
 
 export const metadata: Metadata = {
-  title: "ホテル レベニューマネジメント AI",
-  description: "AIが競合・イベント・天候・景気・地域動向を分析し、部屋・プラン別の最適日別価格を提案します。",
+  title: "ホテル多店舗展開・収支シミュレーター",
+  description: "新規ホテルの収支シミュレーション（賃貸・MC方式）、周辺競合価格の自動取得、多店舗展開計画、レベニューマネジメント。",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ja">
-      <body className="bg-paper text-ink min-h-screen">{children}</body>
+      <body className="bg-paper text-ink min-h-screen">
+        <SiteNav />
+        {children}
+      </body>
     </html>
   );
 }

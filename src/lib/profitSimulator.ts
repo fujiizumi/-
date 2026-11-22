@@ -36,6 +36,13 @@ export type PartTimeStaff = {
 
 export type SimulationInput = {
   model: OperationModel;
+  /** 出店エリア（src/data/areas.ts の id。手入力の場合は "custom"） */
+  areaId: string;
+  /** 物件所在地（競合検索の中心） */
+  latitude: number;
+  longitude: number;
+  /** 競合ホテルの中央値（税抜換算・円）。未取得なら null */
+  marketAdr: number | null;
   /** 目標営業利益（円/年） */
   targetProfit: number;
 
@@ -426,6 +433,10 @@ export const newId = () => `r${Date.now().toString(36)}${(idSeq++).toString(36)}
 /** 初期値：地方都市・100室規模の宿泊特化型ホテル（朝食あり）想定 */
 export const DEFAULT_INPUT: SimulationInput = {
   model: "lease",
+  areaId: "custom",
+  latitude: 36.3911,
+  longitude: 139.0608,
+  marketAdr: null,
   targetProfit: 15_000_000,
 
   rooms: 100,
@@ -482,3 +493,75 @@ export const DEFAULT_INPUT: SimulationInput = {
   mcOperatorCostMonthly: 300_000,
   mcOwnerFixedMonthly: 2_500_000,
 };
+
+/**
+ * エリアの相場と客室数から、人員配置・賃料・固定費などの標準値を組み立てる。
+ * 目標利益・原価率・フィー率など、エリアや規模に依存しない条件は base から引き継ぐ。
+ */
+export function buildInputForArea(
+  area: {
+    id: string;
+    lat: number;
+    lng: number;
+    adr: number;
+    occupancy: number;
+    minWage: number;
+    rentPerRoomMonthly: number;
+    guestsPerRoom: number;
+    otaShare: number;
+  },
+  rooms: number,
+  base: SimulationInput,
+): SimulationInput {
+  const r = Math.max(1, Math.round(rooms));
+  const w = area.minWage;
+  const salaryFactor = w / 1_100;
+  const round1000 = (v: number) => Math.round(v / 1000) * 1000;
+  const round10 = (v: number) => Math.round(v / 10) * 10;
+
+  const fullTime: FullTimeStaff[] = [
+    { id: newId(), role: "支配人", headcount: 1, monthlySalary: round1000(450_000 * salaryFactor), bonusMonths: 2, commuteMonthly: 15_000 },
+  ];
+  if (r >= 80) {
+    fullTime.push({ id: newId(), role: "副支配人", headcount: 1, monthlySalary: round1000(330_000 * salaryFactor), bonusMonths: 2, commuteMonthly: 15_000 });
+  }
+  fullTime.push({
+    id: newId(),
+    role: "フロント社員",
+    headcount: Math.max(1, Math.round(r / 35)),
+    monthlySalary: round1000(250_000 * salaryFactor),
+    bonusMonths: 2,
+    commuteMonthly: 12_000,
+  });
+
+  const partTime: PartTimeStaff[] = [
+    { id: newId(), role: "フロント（日勤）", headcount: Math.max(2, Math.ceil(r / 25)), hourlyWage: round10(w + 70), hoursPerDay: 6, daysPerMonth: 18, commutePerDay: 500 },
+    { id: newId(), role: "フロント（夜勤）", headcount: r > 150 ? 3 : 2, hourlyWage: round10(w + 250), hoursPerDay: 9, daysPerMonth: 15, commutePerDay: 500 },
+    { id: newId(), role: "朝食スタッフ", headcount: Math.max(1, Math.ceil(r / 35)), hourlyWage: round10(w + 30), hoursPerDay: 4, daysPerMonth: 20, commutePerDay: 400 },
+  ];
+
+  return {
+    ...base,
+    areaId: area.id,
+    latitude: area.lat,
+    longitude: area.lng,
+    marketAdr: null,
+    rooms: r,
+    adr: area.adr,
+    occupancy: area.occupancy,
+    guestsPerRoom: area.guestsPerRoom,
+    otaShare: area.otaShare,
+    fullTime,
+    partTime,
+    cleaningHourlyWage: round10(w + 70),
+    utilitiesFixedMonthly: 5_000 * r,
+    systemMonthly: 80_000 + 700 * r,
+    repairMonthly: 2_000 * r,
+    otherFixedMonthly: 2_500 * r,
+    leaseFixedRentMonthly: area.rentPerRoomMonthly * r,
+    leaseInsuranceMonthly: 800 * r,
+    leaseInitialInvestment: 300_000 * r,
+    mcOperatorCostMonthly: 200_000 + 1_000 * r,
+    mcOwnerFixedMonthly: 25_000 * r,
+  };
+}

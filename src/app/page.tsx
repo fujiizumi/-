@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { HOTEL, PLANS, ROOM_TYPES, TOTAL_ROOMS } from "@/data/hotel";
 import type { PortfolioDay, PriceRecommendation } from "@/lib/pricingEngine";
 
@@ -96,12 +95,6 @@ export default function Dashboard() {
           <strong>RevPAR（販売可能な客室1室あたり収益）が最大になる価格</strong>
           を部屋タイプ／プランごとに算出します。各行を開くと、その価格が合理的である理由を確認できます。
         </p>
-        <Link
-          href="/simulator"
-          className="mt-3 inline-block rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-        >
-          新規ホテル 収支シミュレーター（賃貸／MC方式）→
-        </Link>
       </header>
 
       {portfolioSummary && (

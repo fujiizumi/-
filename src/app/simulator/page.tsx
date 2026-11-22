@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { AREAS, ROOM_PRESETS, findArea } from "@/data/areas";
+import { CompetitorPanel } from "@/components/CompetitorPanel";
+import { STORE_STATUSES, loadPortfolio, newStore, upsertStore, type StoreStatus } from "@/lib/portfolio";
 import {
+  buildInputForArea,
   DEFAULT_INPUT,
   computeRequirements,
   newId,
@@ -15,7 +19,6 @@ import {
 } from "@/lib/profitSimulator";
 
 const STORAGE_KEY = "hotel-profit-sim:current";
-const SCENARIOS_KEY = "hotel-profit-sim:scenarios";
 
 const yen = (v: number) => `${Math.round(v).toLocaleString()}円`;
 const man = (v: number) => `${(v / 10_000).toLocaleString(undefined, { maximumFractionDigits: 0 })}万円`;
@@ -106,13 +109,33 @@ const GROUP_LABEL: Record<LineItem["group"], string> = {
 export default function ProfitSimulator() {
   const [input, setInput] = useState<SimulationInput>(DEFAULT_INPUT);
   const [loaded, setLoaded] = useState(false);
-  const [scenarios, setScenarios] = useState<Record<string, SimulationInput>>({});
-  const [scenarioName, setScenarioName] = useState("");
+  const [store, setStore] = useState<{ id: string | null; name: string; status: StoreStatus; openMonth: string }>({
+    id: null,
+    name: "",
+    status: "候補",
+    openMonth: "",
+  });
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [areaNotice, setAreaNotice] = useState<string | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const storeId = params.get("store");
+    const areaParam = findArea(params.get("area") ?? undefined);
+    const roomsParam = parseInt(params.get("rooms") ?? "", 10);
     const saved = safeGet<SimulationInput>(STORAGE_KEY);
-    if (saved) setInput({ ...DEFAULT_INPUT, ...saved });
-    setScenarios(safeGet<Record<string, SimulationInput>>(SCENARIOS_KEY) ?? {});
+    const base = saved ? { ...DEFAULT_INPUT, ...saved } : DEFAULT_INPUT;
+    const st = storeId ? loadPortfolio().stores.find((x) => x.id === storeId) : undefined;
+    if (st) {
+      setInput({ ...DEFAULT_INPUT, ...st.input });
+      setStore({ id: st.id, name: st.name, status: st.status, openMonth: st.openMonth });
+    } else if (areaParam) {
+      const model = params.get("model") === "mc" ? "mc" : base.model;
+      setInput(buildInputForArea(areaParam, Number.isFinite(roomsParam) ? roomsParam : base.rooms, { ...base, model }));
+      setStore((p) => ({ ...p, name: `${areaParam.name} ${Number.isFinite(roomsParam) ? roomsParam : base.rooms}室` }));
+    } else {
+      setInput(base);
+    }
     setLoaded(true);
   }, []);
 
@@ -165,18 +188,27 @@ export default function ProfitSimulator() {
     URL.revokeObjectURL(a.href);
   };
 
-  const saveScenario = () => {
-    const name = scenarioName.trim() || `シナリオ ${Object.keys(scenarios).length + 1}`;
-    const next = { ...scenarios, [name]: input };
-    setScenarios(next);
-    safeSet(SCENARIOS_KEY, next);
-    setScenarioName("");
+  const area = findArea(input.areaId);
+
+  const applyArea = (areaId: string, rooms: number) => {
+    const a = findArea(areaId);
+    if (!a) {
+      setInput((p) => ({ ...p, areaId: "custom", rooms }));
+      return;
+    }
+    setInput((p) => buildInputForArea(a, rooms, p));
+    setAreaNotice(`「${a.name}・${rooms}室」の標準値（ADR・稼働率・時給・人員配置・賃料・固定費）を反映しました。各項目は個別に修正できます。`);
   };
-  const deleteScenario = (name: string) => {
-    const next = { ...scenarios };
-    delete next[name];
-    setScenarios(next);
-    safeSet(SCENARIOS_KEY, next);
+
+  const saveStore = (asNew: boolean) => {
+    const name = store.name.trim() || `${area?.name ?? "新規ホテル"} ${input.rooms}室`;
+    const base = newStore(name, input, store.openMonth || undefined);
+    const id = !asNew && store.id ? store.id : base.id;
+    upsertStore({ ...base, id, status: store.status, openMonth: store.openMonth || base.openMonth });
+    setStore({ id, name, status: store.status, openMonth: store.openMonth || base.openMonth });
+    window.history.replaceState(null, "", `/simulator?store=${id}`);
+    setSavedMsg(`「${name}」を多店舗計画に保存しました。`);
+    setTimeout(() => setSavedMsg(null), 4000);
   };
 
   const isLease = input.model === "lease";
@@ -193,8 +225,8 @@ export default function ProfitSimulator() {
           </p>
         </div>
         <nav className="flex flex-wrap gap-2 text-sm print:hidden">
-          <Link href="/" className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
-            価格ダッシュボードへ
+          <Link href="/portfolio" className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
+            多店舗計画を見る
           </Link>
           <button onClick={exportCsv} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-50">
             CSV出力
@@ -234,10 +266,59 @@ export default function ProfitSimulator() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         {/* ===== 入力 ===== */}
         <aside className="space-y-4 print:hidden">
+          <Section title="出店エリア・客室数">
+            <label className="block text-xs text-slate-600">
+              エリア
+              <select
+                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                value={input.areaId}
+                onChange={(e) => applyArea(e.target.value, input.rooms)}
+              >
+                <option value="custom">カスタム（手入力）</option>
+                {AREAS.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}（{a.prefecture}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-3 text-xs text-slate-600">客室数</div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {ROOM_PRESETS.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => applyArea(input.areaId, r)}
+                  className={`rounded-md border px-2.5 py-1 text-sm tabular-nums ${input.rooms === r ? "border-accent bg-accent text-white" : "border-slate-300 bg-white hover:bg-slate-50"}`}
+                >
+                  {r}室
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-end gap-2">
+              <div className="flex-1">
+                <Field label="客室数（任意の数）" value={input.rooms} onChange={set("rooms")} unit="室" />
+              </div>
+              <button
+                onClick={() => applyArea(input.areaId, input.rooms)}
+                disabled={!area}
+                className="mb-0.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs hover:bg-slate-50 disabled:opacity-40"
+                title="入力した客室数で、人員配置・賃料・固定費を標準値に再計算します"
+              >
+                規模に合わせて再計算
+              </button>
+            </div>
+            {area && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                エリア目安：ADR {yen(area.adr)}／稼働率 {pctText(area.occupancy, 0)}／最低賃金 {yen(area.minWage)}／賃料 {yen(area.rentPerRoomMonthly)}/室・月
+              </p>
+            )}
+            {areaNotice && <p className="mt-2 rounded bg-blue-50 p-2 text-[11px] text-blue-800">{areaNotice}</p>}
+            <p className="mt-2 text-[11px] text-slate-400">※ エリア標準値は社内検討用の仮の目安です。物件条件・競合価格・最新の最低賃金で必ず上書きしてください。</p>
+          </Section>
+
           <Section title="目標・客室・売上">
             <div className="grid grid-cols-2 gap-3">
               <Field label="目標営業利益（年）" value={input.targetProfit} onChange={set("targetProfit")} unit="円" step={1_000_000} />
-              <Field label="客室数" value={input.rooms} onChange={set("rooms")} unit="室" />
               <Field label="年間営業日数" value={input.operatingDays} onChange={set("operatingDays")} unit="日" />
               <Field label="稼働率（OCC）" value={input.occupancy} onChange={set("occupancy")} percent />
               <Field label="客室単価（ADR）" value={input.adr} onChange={set("adr")} unit="円" step={100} />
@@ -415,35 +496,56 @@ export default function ProfitSimulator() {
             )}
           </Section>
 
-          <Section title="シナリオ保存" defaultOpen={false}>
-            <div className="flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
-                placeholder="シナリオ名（例：○○駅前 120室）"
-                value={scenarioName}
-                onChange={(e) => setScenarioName(e.target.value)}
-              />
-              <button onClick={saveScenario} className="rounded-md bg-accent px-3 py-1 text-sm text-white">
-                保存
-              </button>
+          <Section title={store.id ? `多店舗計画：「${store.name}」を編集中` : "多店舗計画に保存"}>
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-600">
+                店舗名
+                <input
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  placeholder={`${area?.name ?? "新規ホテル"} ${input.rooms}室`}
+                  value={store.name}
+                  onChange={(e) => setStore((p) => ({ ...p, name: e.target.value }))}
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-xs text-slate-600">
+                  ステータス
+                  <select
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                    value={store.status}
+                    onChange={(e) => setStore((p) => ({ ...p, status: e.target.value as StoreStatus }))}
+                  >
+                    {STORE_STATUSES.map((st) => (
+                      <option key={st}>{st}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs text-slate-600">
+                  開業予定月
+                  <input
+                    type="month"
+                    className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                    value={store.openMonth}
+                    onChange={(e) => setStore((p) => ({ ...p, openMonth: e.target.value }))}
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button onClick={() => saveStore(false)} className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white">
+                  {store.id ? "上書き保存" : "多店舗計画に保存"}
+                </button>
+                {store.id && (
+                  <button onClick={() => saveStore(true)} className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50">
+                    別店舗として保存
+                  </button>
+                )}
+              </div>
+              {savedMsg && (
+                <p className="text-xs text-rise">
+                  ✓ {savedMsg} <Link href="/portfolio" className="underline">多店舗計画を開く</Link>
+                </p>
+              )}
             </div>
-            <ul className="mt-3 space-y-1 text-sm">
-              {Object.keys(scenarios).length === 0 && <li className="text-xs text-slate-400">保存したシナリオはこのブラウザに保存されます。</li>}
-              {Object.entries(scenarios).map(([name, sc]) => {
-                const p = simulate(sc).operatingProfit;
-                return (
-                  <li key={name} className="flex items-center justify-between gap-2 rounded bg-slate-50 px-2 py-1">
-                    <button className="min-w-0 truncate text-left hover:underline" onClick={() => setInput({ ...DEFAULT_INPUT, ...sc })}>
-                      {name}
-                    </button>
-                    <span className="shrink-0 text-xs tabular-nums text-slate-500">{man(p)}</span>
-                    <button className="shrink-0 text-xs text-fall" onClick={() => deleteScenario(name)}>
-                      削除
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
           </Section>
         </aside>
 
@@ -523,6 +625,16 @@ export default function ProfitSimulator() {
             )}
             <Kpi label="販売室あたり利益" value={yen(result.operatingProfit / Math.max(result.soldRoomNights, 1))} sub="自社営業利益÷販売室" />
           </div>
+
+          <CompetitorPanel
+            lat={input.latitude}
+            lng={input.longitude}
+            adr={input.adr}
+            marketAdr={input.marketAdr}
+            onLocation={(latitude, longitude) => setInput((p) => ({ ...p, latitude, longitude }))}
+            onMarketAdr={(marketAdr) => setInput((p) => ({ ...p, marketAdr }))}
+            onApplyAdr={(adr) => setInput((p) => ({ ...p, adr }))}
+          />
 
           {/* 損益計算書 */}
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
