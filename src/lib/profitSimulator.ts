@@ -1,3 +1,5 @@
+import { DAYS_IN_MONTH, findSeasonProfile } from "@/data/seasonality";
+
 /**
  * 新規ホテル 収支シミュレーター（賃貸方式 / MC方式）
  *
@@ -43,6 +45,12 @@ export type SimulationInput = {
   longitude: number;
   /** 競合ホテルの中央値（税抜換算・円）。未取得なら null */
   marketAdr: number | null;
+  /** 季節パターン（src/data/seasonality.ts の id。編集した場合は "custom"） */
+  seasonProfile: string;
+  /** 1〜12月の稼働率指数（100 = 年平均） */
+  seasonOcc: number[];
+  /** 1〜12月のADR指数（100 = 年平均） */
+  seasonAdr: number[];
   /** 目標営業利益（円/年） */
   targetProfit: number;
 
@@ -211,13 +219,14 @@ export type SimulationResult = {
 
 const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
 
-export function simulate(input: SimulationInput): SimulationResult {
+export function simulate(input: SimulationInput, opts?: { months?: number }): SimulationResult {
   const i = input;
   const occupancy = clamp(i.occupancy, 0, 1);
   const availableRoomNights = i.rooms * i.operatingDays;
   const soldRoomNights = availableRoomNights * occupancy;
   const guestNights = soldRoomNights * i.guestsPerRoom;
-  const months = i.operatingDays / (365 / 12);
+  // 固定費の計上月数。年間試算では営業日数から、月別試算では 1 を渡す
+  const months = opts?.months ?? i.operatingDays / (365 / 12);
 
   // 売上
   const roomRevenue = soldRoomNights * i.adr;
@@ -235,7 +244,8 @@ export function simulate(input: SimulationInput): SimulationResult {
 
   // 人件費
   const fullTimeSalary = sum(i.fullTime.map((s) => s.headcount * s.monthlySalary * months));
-  const fullTimeBonus = sum(i.fullTime.map((s) => s.headcount * s.monthlySalary * s.bonusMonths));
+  // 賞与は年額を月数で按分（月別試算では賞与引当として毎月計上）
+  const fullTimeBonus = sum(i.fullTime.map((s) => s.headcount * s.monthlySalary * s.bonusMonths * (months / 12)));
   const fullTimeCommute = sum(i.fullTime.map((s) => s.headcount * s.commuteMonthly * months));
 
   const partShifts = sum(i.partTime.map((p) => p.headcount * p.daysPerMonth * months));
@@ -437,6 +447,9 @@ export const DEFAULT_INPUT: SimulationInput = {
   latitude: 36.3911,
   longitude: 139.0608,
   marketAdr: null,
+  seasonProfile: "city",
+  seasonOcc: findSeasonProfile("city")!.occ,
+  seasonAdr: findSeasonProfile("city")!.adr,
   targetProfit: 15_000_000,
 
   rooms: 100,
@@ -510,6 +523,7 @@ export function buildInputForArea(
     guestsPerRoom: number;
     otaShare: number;
     utilityFactor?: number;
+    seasonProfile?: string;
   },
   rooms: number,
   base: SimulationInput,
@@ -547,6 +561,9 @@ export function buildInputForArea(
     latitude: area.lat,
     longitude: area.lng,
     marketAdr: null,
+    seasonProfile: area.seasonProfile ?? "city",
+    seasonOcc: (findSeasonProfile(area.seasonProfile) ?? findSeasonProfile("city")!).occ,
+    seasonAdr: (findSeasonProfile(area.seasonProfile) ?? findSeasonProfile("city")!).adr,
     rooms: r,
     adr: area.adr,
     occupancy: area.occupancy,
@@ -652,5 +669,78 @@ export function breakEvenAnalysis(input: SimulationInput): BreakEvenAnalysis {
     breakEvenRatio: ratioOf(be),
     maxSales,
     ownerBreakEvenSales: ownerBe,
+  };
+}
+
+export type MonthResult = {
+  month: number;
+  days: number;
+  occupancy: number;
+  adr: number;
+  result: SimulationResult;
+  /** 自社の営業利益の累計 */
+  cumulativeProfit: number;
+};
+
+export type MonthlySimulation = {
+  months: MonthResult[];
+  totalRevenue: number;
+  totalProfit: number;
+  lossMonths: number;
+  /** 年初からの累計営業利益の最小値（資金繰り上の最大の落ち込み） */
+  worstCumulative: number;
+  best: MonthResult;
+  worst: MonthResult;
+};
+
+/**
+ * 月別試算。季節指数で各月の稼働率とADRを配分する。
+ * 年平均の稼働率（日数加重）とADR（販売室数加重）が入力値と一致するよう指数を自動調整するため、
+ * 12か月の合計は年間試算とほぼ一致する（満室で頭打ちになる月やインセンティブフィーの計算でわずかに差が出る）。
+ */
+export function simulateMonthly(input: SimulationInput, occFactor = 1): MonthlySimulation {
+  const dayScale = input.operatingDays / 365;
+  const days = DAYS_IN_MONTH.map((d) => d * dayScale);
+  const totalDays = days.reduce((a, b) => a + b, 0);
+  const occTarget = Math.min(1, Math.max(0, input.occupancy * occFactor));
+  const oIdx = (k: number) => (input.seasonOcc?.[k] ?? 100) / 100;
+  const aIdx = (k: number) => (input.seasonAdr?.[k] ?? 100) / 100;
+
+  // 稼働率：満室の頭打ちを考慮して、日数加重平均が目標になる倍率を二分探索
+  const avgOcc = (scale: number) => days.reduce((a, d, k) => a + d * Math.min(1, occTarget * oIdx(k) * scale), 0) / totalDays;
+  let lo = 0;
+  let hi = 10;
+  for (let n = 0; n < 50; n++) {
+    const mid = (lo + hi) / 2;
+    if (avgOcc(mid) < occTarget) lo = mid;
+    else hi = mid;
+  }
+  const occs = days.map((_, k) => Math.min(1, occTarget * oIdx(k) * hi));
+
+  // ADR：販売室数加重の平均が入力ADRになるよう調整
+  const sold = days.map((d, k) => d * occs[k]);
+  const soldSum = sold.reduce((a, b) => a + b, 0);
+  const weighted = sold.reduce((a, s, k) => a + s * aIdx(k), 0);
+  const adrScale = weighted > 0 ? soldSum / weighted : 1;
+  const adrs = days.map((_, k) => input.adr * aIdx(k) * adrScale);
+
+  let cum = 0;
+  let worstCum = 0;
+  const months: MonthResult[] = days.map((d, k) => {
+    const result = simulate({ ...input, operatingDays: d, occupancy: occs[k], adr: adrs[k] }, { months: dayScale });
+    cum += result.operatingProfit;
+    worstCum = Math.min(worstCum, cum);
+    return { month: k + 1, days: d, occupancy: occs[k], adr: adrs[k], result, cumulativeProfit: cum };
+  });
+
+  const byProfit = [...months].sort((a, b) => b.result.operatingProfit - a.result.operatingProfit);
+  return {
+    months,
+    totalRevenue: months.reduce((a, m) => a + m.result.totalRevenue, 0),
+    totalProfit: cum,
+    lossMonths: months.filter((m) => m.result.operatingProfit < 0).length,
+    worstCumulative: worstCum,
+    best: byProfit[0],
+    worst: byProfit[byProfit.length - 1],
   };
 }

@@ -2,7 +2,7 @@
  * 多店舗展開計画：店舗リストの保存と、全社の年度別収支予測。
  * 店舗データはブラウザの localStorage に保存し、JSONで書き出し／読み込みできます。
  */
-import { DEFAULT_INPUT, buildInputForArea, simulate, type SimulationInput } from "./profitSimulator";
+import { DEFAULT_INPUT, buildInputForArea, simulate, simulateMonthly, type MonthlySimulation, type SimulationInput } from "./profitSimulator";
 import type { AreaPreset } from "@/data/areas";
 
 export type StoreStatus = "候補" | "交渉中" | "契約済" | "開業済";
@@ -143,12 +143,13 @@ export function projectPortfolio(p: Portfolio): YearProjection[] {
   const out: YearProjection[] = [];
   let cumulative = 0;
   // ランプ係数ごとの結果をキャッシュ（店舗×係数）
-  const memo = new Map<string, ReturnType<typeof simulate>>();
+  // 店舗×稼働係数ごとの月別試算をキャッシュ（季節変動を反映）
+  const memo = new Map<string, MonthlySimulation>();
   const get = (st: Store, f: number) => {
     const k = `${st.id}:${f}`;
     let r = memo.get(k);
     if (!r) {
-      r = storeProfit(st.input, f);
+      r = simulateMonthly(st.input, f);
       memo.set(k, r);
     }
     return r;
@@ -174,12 +175,12 @@ export function projectPortfolio(p: Portfolio): YearProjection[] {
         const since = (year - oy) * 12 + (m - om);
         if (since < 0) continue;
         active.add(st.id);
-        const r = get(st, rampFactor(since, settings));
-        revenue += r.totalRevenue / 12;
-        profit += r.operatingProfit / 12;
+        const r = get(st, rampFactor(since, settings)).months[m - 1].result;
+        revenue += r.totalRevenue;
+        profit += r.operatingProfit;
         if (st.input.model === "lease") {
           const yearsSince = since / 12;
-          if (yearsSince < st.input.leaseDepreciationYears) depreciation += r.lease.depreciation / 12;
+          if (yearsSince < st.input.leaseDepreciationYears) depreciation += r.lease.depreciation;
         }
       }
     }

@@ -6,10 +6,12 @@ import { AREAS, ROOM_PRESETS, findArea } from "@/data/areas";
 import { CompetitorPanel } from "@/components/CompetitorPanel";
 import { ExportDialog } from "@/components/ExportDialog";
 import { BreakEvenPanel } from "@/components/BreakEvenPanel";
+import { MonthlyPanel } from "@/components/MonthlyPanel";
 import { getQuery, isStandalone, setStoreInUrl, tryDownload } from "@/lib/env";
 import { STORE_STATUSES, loadPortfolio, newStore, upsertStore, type StoreStatus } from "@/lib/portfolio";
 import {
   breakEvenAnalysis,
+  simulateMonthly,
   buildInputForArea,
   DEFAULT_INPUT,
   computeRequirements,
@@ -156,6 +158,7 @@ export default function ProfitSimulator() {
   const result = useMemo(() => simulate(input), [input]);
   const req = useMemo(() => computeRequirements(input), [input]);
   const be = useMemo(() => breakEvenAnalysis(input), [input]);
+  const monthly = useMemo(() => simulateMonthly(input), [input]);
   const leaseResult = useMemo(() => simulate({ ...input, model: "lease" }), [input]);
   const mcResult = useMemo(() => simulate({ ...input, model: "mc" }), [input]);
 
@@ -190,6 +193,20 @@ export default function ProfitSimulator() {
     if (be.breakEvenSales !== null) rows.push(["損益分岐点", "損益分岐点売上高", Math.round(be.breakEvenSales), Math.round(be.breakEvenSales / months), "", ""]);
     if (be.targetSales !== null) rows.push(["損益分岐点", "目標利益達成売上高", Math.round(be.targetSales), Math.round(be.targetSales / months), "", ""]);
     if (be.safetyMargin !== null) rows.push(["損益分岐点", "安全余裕率(%)", (be.safetyMargin * 100).toFixed(1), "", "", ""]);
+    rows.push([]);
+    rows.push(["月別", "月", "稼働率(%)", "ADR(円)", "売上高(円)", "GOP(円)", "営業利益(円)", "累計営業利益(円)"]);
+    for (const m of monthly.months) {
+      rows.push([
+        "月別",
+        `${m.month}月`,
+        (m.occupancy * 100).toFixed(1),
+        Math.round(m.adr),
+        Math.round(m.result.totalRevenue),
+        Math.round(m.result.gop),
+        Math.round(m.result.operatingProfit),
+        Math.round(m.cumulativeProfit),
+      ]);
+    }
     const csv = "﻿" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     if (!tryDownload(csv, `hotel-profit-${input.model}.csv`, "text/csv;charset=utf-8")) setExportText(csv.replace(/^\uFEFF/, ""));
   };
@@ -615,6 +632,8 @@ export default function ProfitSimulator() {
           </div>
 
           <BreakEvenPanel be={be} model={input.model} currentSales={result.totalRevenue} months={months} targetProfit={input.targetProfit} />
+
+          <MonthlyPanel input={input} monthly={monthly} onSeason={(patch) => setInput((p) => ({ ...p, ...patch }))} />
 
           {/* KPI */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
