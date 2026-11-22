@@ -24,10 +24,13 @@ export type AreaPreset = {
   guestsPerRoom: number;
   /** OTA販売比率 */
   otaShare: number;
+  /** 水道光熱費の係数（寒冷地の暖房費など。省略時 1.0） */
+  utilityFactor?: number;
 };
 
 export const AREAS: AreaPreset[] = [
   { id: "sapporo", name: "札幌（すすきの・大通）", prefecture: "北海道", lat: 43.0556, lng: 141.3536, adr: 8_500, occupancy: 0.8, minWage: 1_075, rentPerRoomMonthly: 74_000, guestsPerRoom: 1.35, otaShare: 0.62 },
+  { id: "wakkanai", name: "稚内（駅・港周辺）", prefecture: "北海道", lat: 45.417, lng: 141.677, adr: 7_800, occupancy: 0.62, minWage: 1_075, rentPerRoomMonthly: 42_000, guestsPerRoom: 1.3, otaShare: 0.5, utilityFactor: 1.4 },
   { id: "sendai", name: "仙台駅周辺", prefecture: "宮城県", lat: 38.2601, lng: 140.8822, adr: 7_800, occupancy: 0.78, minWage: 1_038, rentPerRoomMonthly: 66_000, guestsPerRoom: 1.2, otaShare: 0.58 },
   { id: "tokyo-ueno", name: "東京（上野・浅草）", prefecture: "東京都", lat: 35.7138, lng: 139.7774, adr: 13_000, occupancy: 0.85, minWage: 1_226, rentPerRoomMonthly: 132_000, guestsPerRoom: 1.5, otaShare: 0.7 },
   { id: "tokyo-kamata", name: "東京（蒲田・大森）", prefecture: "東京都", lat: 35.5626, lng: 139.716, adr: 10_500, occupancy: 0.84, minWage: 1_226, rentPerRoomMonthly: 106_000, guestsPerRoom: 1.3, otaShare: 0.66 },

@@ -509,6 +509,7 @@ export function buildInputForArea(
     rentPerRoomMonthly: number;
     guestsPerRoom: number;
     otaShare: number;
+    utilityFactor?: number;
   },
   rooms: number,
   base: SimulationInput,
@@ -554,7 +555,8 @@ export function buildInputForArea(
     fullTime,
     partTime,
     cleaningHourlyWage: round10(w + 70),
-    utilitiesFixedMonthly: 5_000 * r,
+    utilitiesFixedMonthly: Math.round(5_000 * r * (area.utilityFactor ?? 1)),
+    utilitiesPerRoom: Math.round(DEFAULT_INPUT.utilitiesPerRoom * (area.utilityFactor ?? 1)),
     systemMonthly: 80_000 + 700 * r,
     repairMonthly: 2_000 * r,
     otherFixedMonthly: 2_500 * r,
